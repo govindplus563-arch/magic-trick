@@ -19,18 +19,18 @@
     { id: 'tests', label: 'Tests' }, { id: 'backlog', label: 'Backlog' }
   ];
   const PENDING = {};
-  const VIEWS = { book: BookView, settings: SettingsView, mistakes: MistakesView, home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
+  const VIEWS = { library: LibraryView, book: BookView, settings: SettingsView, mistakes: MistakesView, home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
 
   let tab = 'home';
 
   function currentTab() {
     const h = location.hash.replace('#', '').split('/')[0];
-    return h === 'settings' || h === 'mistakes' || h === 'book' || TABS.some(t => t.id === h) ? h : 'home';
+    return h === 'settings' || h === 'mistakes' || h === 'book' || h === 'library' || TABS.some(t => t.id === h) ? h : 'home';
   }
 
   function renderNav() {
     const nav = document.getElementById('nav');
-    const cur = tab === 'settings' || tab === 'book' ? 'home' : tab === 'mistakes' ? 'revision' : tab;
+    const cur = tab === 'settings' || tab === 'book' || tab === 'library' ? 'home' : tab === 'mistakes' ? 'revision' : tab;
     nav.replaceChildren(...TABS.map(t => el('a', {
       href: '#' + t.id, class: 'nav-item' + (t.id === cur ? ' active' : ''), 'aria-current': t.id === cur ? 'page' : null
     }, ico(ICONS[t.id]), el('span', {}, t.label),

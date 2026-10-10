@@ -22,7 +22,7 @@
     const here = location.hash.split('/').slice(0, 2).join('/');
     const alive = () => root.isConnected && location.hash.startsWith(here);
 
-    root.append(el('div', { class: 'page-head' }, el('a', { class: 'back', href: '#settings' }, '‹ Library')));
+    root.append(el('div', { class: 'page-head' }, el('a', { class: 'back', href: '#library' }, '‹ Library')));
     const body = el('div', {}, el('p', { class: 'hint' }, 'Opening book…'));
     root.append(body);
 

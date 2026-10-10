@@ -115,7 +115,9 @@
       chunksOf(pg.text, state, i + 1).forEach(c => rows.push({ bookId: id, page: i + 1, label: pg.label, heading: c.heading, text: c.text }));
     });
     if (!rows.length) throw new Error('No readable text found. This file may be scanned images (photos of pages). Use a text-based PDF.');
-    const dup = (await list()).find(b => b.pages === rawPages.length && b.chars === chars);
+    let h = 5381; for (const pg of prep.pages) { const t = pg.text; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; h = (h * 31 + t.length) | 0; }
+    const hash = h + ':' + chars + ':' + rawPages.length;
+    const dup = (await list()).find(b => b.hash === hash);   // exactly the same text already in the Library
     if (dup) return { duplicate: true, of: dup.title || dup.name, pages: rawPages.length, empty };   // same text already in the Library
     for (let i = 0; i < rows.length; i += 2000) {
       const t = db.transaction('chunks', 'readwrite'); const st = t.objectStore('chunks');
@@ -124,7 +126,7 @@
     const finalSubject = subject || prep.subject;
     const keepFile = !!(file && /\.pdf$/i.test(name));
     const t = db.transaction(keepFile ? ['books', 'files'] : ['books'], 'readwrite');
-    t.objectStore('books').put({ id, name, title: titleFromCover((prep.pages.find(pg => pg.text && pg.text.length > 40) || {}).text) || prep.title(name), titled: true, subject: finalSubject, pages: rawPages.length, empty, chars, size: file ? file.size : 0, hasFile: keepFile, added: new Date().toISOString() });
+    t.objectStore('books').put({ id, name, title: titleFromCover((prep.pages.find(pg => pg.text && pg.text.length > 40) || {}).text) || prep.title(name), titled: true, hash, subject: finalSubject, pages: rawPages.length, empty, chars, size: file ? file.size : 0, hasFile: keepFile, added: new Date().toISOString() });
     if (keepFile) t.objectStore('files').put(file, id);
     await done(t);
     index = null;
@@ -144,6 +146,8 @@
     }
     return changed;
   }
+
+  async function setSubject(id, subject) { const db = await open(); const b = await getBook(id); if (!b) return; const t = db.transaction('books', 'readwrite'); t.objectStore('books').put(Object.assign({}, b, { subject: String(subject || '').trim() })); await done(t); index = null; }
 
   async function remove(id) {
     const db = await open();
@@ -199,17 +203,19 @@
     const q = [...new Set(tokens(query))];
     if (!q.length) return [];
     const N = ix.docs.length, k1 = 1.4, b = 0.75;
+    const idfOf = w => { const n = ix.df.get(w) || 0; return Math.log(1 + (N - n + 0.5) / (n + 0.5)); };
+    const idfTotal = q.reduce((a, w) => a + idfOf(w), 0) || 1;   // words that appear nowhere count fully: they must be covered too
     const scored = [];
     pool.forEach(d => {
-      let sc = 0, hit = 0;
+      let sc = 0, hit = 0, cov = 0;
       q.forEach(w => {
         const f = d.tf.get(w); if (!f) return;
-        hit++;
+        hit++; cov += idfOf(w);
         const n = ix.df.get(w) || 0, idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
         sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * d.len / ix.avg));
       });
       if (!d.heading) sc *= 0.8;
-      if (sc > 0) scored.push({ book: d.book, page: d.page, label: d.label, heading: d.heading, text: d.text, score: sc, matched: hit, terms: q.length });
+      if (sc > 0) scored.push({ book: d.book, page: d.page, label: d.label, heading: d.heading, text: d.text, score: sc, matched: hit, terms: q.length, coverage: cov / idfTotal, words: q });
     });
     scored.sort((x, y) => y.score - x.score);
     const out = [], perPage = new Map();
@@ -254,5 +260,5 @@
 
   const stats = async () => { const b = await list(); return { books: b.length, pages: b.reduce((s, x) => s + x.pages, 0), chars: b.reduce((s, x) => s + x.chars, 0) }; };
 
-  window.Library = { fixTitles, cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
+  window.Library = { setSubject, fixTitles, cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
 })();

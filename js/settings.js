@@ -47,62 +47,10 @@
 
 
   function libraryCard() {
-    const box = el('div', { class: 'lib-list' }), status = el('div', { class: 'hint', style: 'margin:8px 0 0', hidden: true });
-    const dl = el('datalist', { id: 'libSubjects' });
-    const subj = el('input', { type: 'text', list: 'libSubjects', placeholder: 'Subject (e.g. Taxation)', maxlength: 60, 'aria-label': 'Subject for the books you add' });
-    const names = () => [...new Set(Store.get().lectures.map(l => l.subject))].sort();
-    const file = el('input', { type: 'file', multiple: true, hidden: true, accept: '.pdf,.docx,.txt,application/pdf' });
-    const folder = el('input', { type: 'file', hidden: true, webkitdirectory: true, multiple: true });
-    const touch = (navigator.maxTouchPoints || 0) > 0 && /Android|iPhone|iPad/i.test(navigator.userAgent);   // phones cannot pick folders: pick many files at once instead
-    const say = (m, bad) => { status.hidden = false; status.className = bad ? 'err' : 'hint'; status.style.margin = '8px 0 0'; status.style.whiteSpace = 'pre-wrap'; status.textContent = m; };
-    const mb = n => (n / 1048576).toFixed(1);
-    const draw = async () => {
-      let books = [];
-      try { if (await Library.fixTitles()) books = []; books = await Library.list(); } catch (e) { box.replaceChildren(el('div', { class: 'err' }, e.message)); return; }
-      dl.replaceChildren(...names().map(n => el('option', { value: n })));
-      box.replaceChildren(...(books.length ? books.map(b => el('div', { class: 'lib-row' },
-        el('div', { class: 'lib-main' }, el('div', { class: 'lib-name' }, b.title || b.name),
-          el('div', { class: 'lib-meta' }, `${b.subject || 'No subject'} · ${b.pages} pages · ${mb(b.chars)} MB of text${b.empty ? ` · ${b.empty} pages had no text` : ''}`),
-          el('div', { class: 'lib-meta' }, b.name),
-          el('button', { class: 'linkbtn', type: 'button', 'aria-label': 'Remove ' + (b.title || b.name), onclick: async () => { if (confirm(`Remove "${b.title || b.name}" from the Library? You can add it again later.`)) { await Library.remove(b.id); draw(); } } }, 'Remove')),
-        el('a', { class: 'btn outline sm', href: `#book/${b.id}/1` }, '📖 Open')))
-        : [el('p', { class: 'hint', style: 'margin:0' }, 'No books yet. Add text-based PDFs of your textbooks and Acts.')]));
-    };
-    // Reads every chosen file in turn. Works for one file, many files or a whole folder.
-    const addFiles = async files => {
-      files = files.filter(f => /\.(pdf|docx|txt)$/i.test(f.name)).sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, undefined, { numeric: true }));
-      if (!files.length) { say('No PDF, Word or text files found there.', true); return; }
-      const existing = await Library.list();
-      let added = 0, skipped = 0, failed = [];
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i], tag = `File ${i + 1} of ${files.length}: ${f.name}`;
-        if (existing.some(b => b.name === f.name && b.size === f.size)) { skipped++; continue; }   // already in the Library
-        try {
-          const folder = (f.webkitRelativePath || '').split('/').slice(-2, -1)[0] || '';
-          const subject = subj.value.trim() || Library.guessSubject(folder, names()) || Library.guessSubject(f.name, names());
-          say(`${tag} - reading…`);
-          const pages = await FileText.readPages(f, (p, n) => say(`${tag} - page ${p} of ${n}`), { tabGap: 14 });
-          say(`${tag} - saving…`);
-          const r = await Library.add(f.name, subject, pages, f);
-          if (r.duplicate) { skipped++; continue; }
-          added++;
-          if (added === 1 && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-        } catch (e) { failed.push(`${f.name}: ${e.message || 'could not be read'}`); }
-        await draw();
-      }
-      say(`Done. ${added} added${skipped ? `, ${skipped} already in the Library` : ''}${failed.length ? `, ${failed.length} failed` : ''}.` + (failed.length ? '\n' + failed.join('\n') : ''), failed.length > 0 && !added);
-    };
-    file.addEventListener('change', () => { const fs = [...file.files]; file.value = ''; addFiles(fs); });
-    folder.addEventListener('change', () => { const fs = [...folder.files]; folder.value = ''; addFiles(fs); });
-    draw();
-    return el('section', { class: 'card settings-card' },
-      el('h2', {}, '📚 Library (textbooks & Acts)'),
-      el('p', { class: 'hint' }, 'Books stay on this phone. When you ask the chat a question, the app searches them here and sends only the few matching passages to Gemini, so answers come from your books with page numbers.'),
-      box, el('div', { class: 'lib-add' }, subj, dl,
-        el('button', { class: 'btn outline sm', type: 'button', onclick: () => file.click() }, '+ Add books'),
-        touch ? null : el('button', { class: 'btn outline sm', type: 'button', onclick: () => folder.click() }, '📁 Add folder'), file, folder),
-      el('p', { class: 'hint', style: 'margin:8px 0 0' }, touch ? 'Tip: in the file picker, press and hold one file, then select all the others to add many books in one go.' : 'Tip: "Add folder" reads every PDF inside it. Name sub-folders after the subject (e.g. Taxation) to set the subject automatically.'),
-      status);
+    const line = el('p', { class: 'hint' }, 'Your textbooks and Acts, stored on this phone.');
+    Library.stats().then(st => { line.textContent = st.books ? `${st.books} books · ${st.pages.toLocaleString()} pages, grouped by subject. They stay on this phone.` : 'No books yet. Add text-based PDFs of your textbooks and Acts.'; }).catch(() => {});
+    return el('section', { class: 'card settings-card' }, el('h2', {}, '📚 Library (textbooks & Acts)'), line,
+      el('a', { class: 'btn primary sm', href: '#library', style: 'text-decoration:none;display:inline-block' }, 'Open Library'));
   }
 
   function render(root) {

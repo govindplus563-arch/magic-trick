@@ -487,3 +487,18 @@ select, input, textarea { color-scheme: inherit; }
 .rec-box { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; background: var(--teal-soft); border-radius: 10px; padding: 8px 10px; margin: 6px 0; }
 .rec-box[hidden] { display: none; }
 .fab.left { right: auto; left: max(14px, calc((100vw - 480px) / 2 + 14px)); }
+
+/* library page */
+.lib-folder { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 8px; }
+.lib-folder > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; font-weight: 700; }
+.lib-folder > summary::-webkit-details-marker { display: none; }
+.lib-folder > summary::after { content: '›'; color: var(--muted); font-size: 20px; transition: transform .15s; margin-left: 4px; }
+.lib-folder[open] > summary::after { transform: rotate(90deg); }
+.lf-name { flex: 1; overflow-wrap: anywhere; }
+.lf-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+.lib-folder .lib-row { padding: 8px 14px; }
+.lib-bar { display: flex; align-items: center; gap: 12px; margin: 4px 2px 8px; flex-wrap: wrap; }
+.lib-bar .hint { flex: 1; }
+.lib-links { display: flex; gap: 14px; }
+.linkbtn.blue { color: var(--indigo); }
+.lib-folders { margin-top: 10px; }
