@@ -42,6 +42,37 @@
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+  // ---- revision engine: day 1, day 3, day 7, then weekly (days + weeks only) ----
+  const KINDS = [{ kind: 'd1', off: 1, label: '1-day' }, { kind: 'd3', off: 3, label: '3-day' }, { kind: 'd7', off: 7, label: '7-day' }];
+  const hash = str => { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+
+  function planFor(base, examDate) {
+    const out = KINDS.map(k => ({ kind: k.kind, due: D.add(base, k.off), label: k.label }));
+    const last = examDate && examDate > base ? examDate : D.add(base, 56);
+    for (let n = 1; n <= 12; n++) {
+      const due = D.add(base, 7 + 7 * n);
+      if (due > last) break;
+      out.push({ kind: 'w' + n, due, label: 'Weekly' });
+    }
+    return out;
+  }
+
+  // Adds the revision slots a lecture is missing, counted from `base` (the day it was ticked).
+  function addRevisionsFor(s, lec, base, sampleMode) {
+    if (sampleMode && hash(lec.id) % 2) return;   // keep the sample light
+    const have = new Set(s.revisions.filter(r => r.lectureId === lec.id).map(r => r.kind));
+    const t = D.today();
+    planFor(base, s.examDate).forEach(p => {
+      if (have.has(p.kind)) return;
+      const r = { id: uid(), lectureId: lec.id, kind: p.kind, label: p.label, due: p.due, done: false, doneOn: null };
+      if (sampleMode) {
+        r.sample = true;
+        if (p.due < t && hash(lec.id + p.kind) % 6 !== 0) { r.done = true; r.doneOn = p.due; } // some stay missed
+      }
+      s.revisions.push(r);
+    });
+  }
+
   let mem = null; // fallback when localStorage is unavailable
   let state;
 
@@ -57,14 +88,14 @@
     ];
     const lectures = [];
     let n = 0;
-    for (let off = -10; off <= 10; off++) {
-      const count = off === 0 ? 4 : 3;
+    for (let off = -14; off <= 10; off++) {
+      const count = off === 0 ? 4 : off < 0 ? 2 : 3;
       for (let i = 0; i < count; i++) {
         const p = plan[(n + i) % plan.length];
-        const lecNo = p[2] + Math.floor((off + 10) / 2) + (i > 1 ? 1 : 0);
+        const lecNo = p[2] + Math.floor((off + 14) / 2) + (i > 1 ? 1 : 0);
         const date = D.add(t, off);
         let done = false;
-        if (off < 0) done = (n + i) % 7 !== 3 && (n + i) % 11 !== 5;   // a few missed
+        if (off < 0) done = (n + i) % 7 !== 3;   // a few missed
         if (off === 0) done = i < 2;                                  // matches the mock-up
         lectures.push({
           id: uid(), date, subject: p[0], chapter: p[1], lecture: lecNo, duration: p[3] + (i % 2) * 10,
@@ -78,16 +109,18 @@
 
   function fresh() {
     const t = D.today();
-    return {
-      version: 1,
+    const s = {
+      version: 2,
       examDate: D.add(t, 47),
       examName: 'CA Inter Exam',
-      planStart: D.add(t, -10),
+      planStart: D.add(t, -14),
       sampleActive: true,
       lectures: sampleData(),
       revisions: [],
       tests: []
     };
+    s.lectures.filter(l => l.done).forEach(l => addRevisionsFor(s, l, l.doneOn, true));
+    return s;
   }
 
   function normalize(s) {
@@ -117,7 +150,15 @@
   const Store = {
     D, uid,
     get() { return state; },
-    init() { state = load(); save(); },
+    init() {
+      state = load();
+      if (state.version < 2) {   // older saves: build revisions for lectures that were already ticked
+        state.lectures.filter(l => l.done && l.doneOn && !state.revisions.some(r => r.lectureId === l.id))
+          .forEach(l => addRevisionsFor(state, l, l.doneOn, !!l.sample));
+        state.version = 2;
+      }
+      save();
+    },
     save,
 
     setExamDate(date) {
@@ -157,8 +198,54 @@
       if (!l) return null;
       l.done = !l.done;
       l.doneOn = l.done ? D.today() : null;
+      if (l.done) addRevisionsFor(state, l, l.doneOn, false);
+      else state.revisions = state.revisions.filter(r => r.lectureId !== l.id || r.done);
       save();
       return l;
+    },
+
+    lectureById(id) { return state.lectures.find(l => l.id === id); },
+
+    revisionsOn(date) {
+      return state.revisions.filter(r => r.due === date && !r.cleared && Store.lectureById(r.lectureId));
+    },
+
+    toggleRevision(id) {
+      const r = state.revisions.find(x => x.id === id);
+      if (!r) return;
+      r.done = !r.done;
+      r.doneOn = r.done ? D.today() : null;
+      save();
+    },
+
+    /** Anything not done by the end of its day. Computed, so it is always current. */
+    backlog() {
+      const t = D.today();
+      const lectures = state.lectures.filter(l => !l.done && !l.cleared && l.date < t)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const revisions = state.revisions.filter(r => !r.done && !r.cleared && r.due < t && Store.lectureById(r.lectureId))
+        .sort((a, b) => a.due.localeCompare(b.due));
+      return { lectures, revisions, count: lectures.length + revisions.length };
+    },
+
+    reschedule(type, id, date) {
+      if (!D.isValid(date) || date < D.today()) return false;
+      if (type === 'lecture') {
+        const l = state.lectures.find(x => x.id === id); if (!l) return false;
+        if (!l.origDate) l.origDate = l.date;   // Progress still measures against the original plan
+        l.date = date; l.cleared = false;
+      } else {
+        const r = state.revisions.find(x => x.id === id); if (!r) return false;
+        if (!r.origDue) r.origDue = r.due;
+        r.due = date; r.cleared = false;
+      }
+      save();
+      return true;
+    },
+
+    clearItem(type, id) {
+      const it = (type === 'lecture' ? state.lectures : state.revisions).find(x => x.id === id);
+      if (it) { it.cleared = true; save(); }
     },
 
     clearSample() {

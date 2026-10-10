@@ -30,8 +30,22 @@
   </form>
 </dialog>
 
+<dialog id="rescheduleDialog" class="sheet">
+  <form id="rescheduleForm" method="dialog">
+    <h2>Reschedule</h2>
+    <p class="hint" id="rescheduleWhat"></p>
+    <label>New date <input type="date" name="date" required></label>
+    <div class="actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary">Reschedule</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="js/store.js"></script>
 <script src="js/home.js"></script>
+<script src="js/revision.js"></script>
+<script src="js/backlog.js"></script>
 <script src="js/planner.js"></script>
 <script src="js/app.js"></script>
 </body>

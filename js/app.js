@@ -18,8 +18,8 @@
     { id: 'home', label: 'Home' }, { id: 'revision', label: 'Revision' }, { id: 'progress', label: 'Progress' },
     { id: 'tests', label: 'Tests' }, { id: 'backlog', label: 'Backlog' }
   ];
-  const PENDING = { revision: 'step 3', progress: 'step 4', tests: 'step 4', backlog: 'step 3' };
-  const VIEWS = { home: HomeView };
+  const PENDING = { progress: 'step 4', tests: 'step 4' };
+  const VIEWS = { home: HomeView, revision: RevisionView, backlog: BacklogView };
 
   let tab = 'home';
 
@@ -32,7 +32,8 @@
     const nav = document.getElementById('nav');
     nav.replaceChildren(...TABS.map(t => el('a', {
       href: '#' + t.id, class: 'nav-item' + (t.id === tab ? ' active' : ''), 'aria-current': t.id === tab ? 'page' : null
-    }, ico(ICONS[t.id]), el('span', {}, t.label))));
+    }, ico(ICONS[t.id]), el('span', {}, t.label),
+      t.id === 'backlog' && Store.backlog().count ? el('b', { class: 'nav-badge' }, String(Store.backlog().count)) : null)));
   }
 
   function render() {
@@ -65,7 +66,25 @@
     dlg.showModal();
   }
 
-  window.App = { render, openLectureDialog };
+  // ---- reschedule dialog (used by Backlog) ----
+  const rdlg = document.getElementById('rescheduleDialog');
+  const rform = document.getElementById('rescheduleForm');
+  let rTarget = null;
+  rdlg.querySelector('[data-close]').addEventListener('click', () => rdlg.close());
+  rform.addEventListener('submit', e => {
+    e.preventDefault();
+    if (rTarget && Store.reschedule(rTarget.type, rTarget.id, rform.elements.date.value)) { rdlg.close(); render(); }
+  });
+  function openReschedule(type, id, what) {
+    rTarget = { type, id };
+    document.getElementById('rescheduleWhat').textContent = what;
+    const t = Store.D.today();
+    rform.elements.date.min = t;
+    rform.elements.date.value = Store.D.add(t, 1);
+    rdlg.showModal();
+  }
+
+  window.App = { render, openLectureDialog, openReschedule };
   window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
   // Re-render when the day rolls over while the app stays open.
   let lastDay = Store.D.today();
