@@ -193,6 +193,8 @@
       try { cells = splitLine(raw); } catch (e) { errors.push({ line, text: raw, reason: e.message }); return; }
       while (cells.length > 5 && !cells[cells.length - 1]) cells.pop();
       if (/^date$/i.test(cells[0])) return;   // header row (also repeated headers from several sheets/pages)
+      let of = 0;
+      if (cells.length === 6 && /^\d*$/.test(cells[5])) { of = +cells[5] || 0; cells = cells.slice(0, 5); }   // optional 6th column: lectures in chapter
       if (cells.length !== 5) {
         errors.push({ line, text: raw, reason: `expected 5 columns (Date | Subject | Chapter | Lecture | Duration), found ${cells.length}` });
         return;
@@ -200,6 +202,7 @@
       try {
         const r = { line, date: parseDate(cells[0]), subject: cells[1].trim(), chapter: cells[2].trim(),
                     lecture: parseLecture(cells[3]), duration: parseDuration(cells[4]) };
+        if (of) r.of = of;
         if (!r.subject) throw new Error('subject is empty');
         if (!r.chapter) throw new Error('chapter is empty');
         if (seen.has(key(r))) { dupes++; return; }
@@ -218,7 +221,7 @@
   const { el } = HomeView;
   const D = Store.D;
   const TEMPLATE = 'Date,Subject,Chapter,Lecture,Duration\n2026-10-12,Taxation,GST - Input Tax Credit,Lec 16,1h 30m\n13/10/2026,Law,Companies Act,9,75 min\n14 Oct 2026,Audit,Nature of Audit,7,1:15\n';
-  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, current = null;
+  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, aiBtn, aiHint, aiStatus, aiAbort = null, current = null;
 
   function build() {
     dlg = el('dialog', { class: 'sheet wide' });
@@ -237,7 +240,7 @@
     sampleRow = el('label', { class: 'check-row' }, clearSample, ' Remove sample data when saving');
     durIn = el('input', { type: 'number', min: 1, max: 600, value: 90, 'aria-label': 'Default duration in minutes' });
     durIn.addEventListener('input', preview);
-    durRow = el('label', { class: 'field inline-field' }, 'This planner has no durations. Use (minutes) for every lecture: ', durIn);
+    durRow = el('label', { class: 'field inline-field' }, 'Duration to use when the planner has none (minutes): ', durIn);
     pastSel = el('select', { 'aria-label': 'Lectures dated before today' },
       el('option', { value: 'missed' }, 'Add as missed (they go to Backlog)'),
       el('option', { value: 'done' }, 'Add as already done'),
@@ -256,6 +259,11 @@
         'Dates: DD/MM/YYYY, YYYY-MM-DD or 5 Oct 2026. Duration: 90, 90 min, 1h 30m or 1:30 (a bare number means minutes). ', tpl),
       el('label', { class: 'field' }, 'Choose a file (Excel, PDF, Word .docx, CSV or text)', file),
       el('label', { class: 'field' }, 'or paste the planner here', ta),
+      el('div', { class: 'ai-row' },
+        aiBtn = el('button', { type: 'button', class: 'btn outline sm', onclick: runAI }, '✨ Read with Gemini AI'),
+        el('button', { type: 'button', class: 'btn ghost sm', onclick: () => Gemini.openSettings().then(refreshAI) }, 'AI settings')),
+      aiHint = el('div', { class: 'hint ai-hint', hidden: true }, 'Some rows could not be read. Gemini AI can often understand unusual planner layouts. It sends the planner text to Google when you press the button.'),
+      aiStatus = el('div', { class: 'hint', hidden: true }),
       results, durRow, pastRow, sampleRow,
       el('div', { class: 'actions' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Cancel'), saveBtn));
     document.body.append(dlg);
@@ -266,12 +274,13 @@
     results.replaceChildren();
     saveBtn.disabled = true; saveBtn.textContent = 'Save'; current = null;
     sampleRow.hidden = !st.sampleActive;
+    pastRow.hidden = true; aiHint.hidden = true;
+    aiBtn.disabled = !!aiAbort || !ta.value.trim();
     if (!ta.value.trim()) return;
-    durRow.hidden = pastRow.hidden = true;
     current = parse(ta.value, st.lectures.filter(l => !(st.sampleActive && clearSample.checked && l.sample)),
       { defaultDuration: +durIn.value || 90 });
     const { rows, errors, dupes } = current;
-    durRow.hidden = !current.structured;
+    aiHint.hidden = !(errors.length >= 3 || (!rows.length && errors.length));
     const nPast = rows.filter(r => r.date < D.today()).length;
     pastRow.hidden = !nPast;
     if (nPast) pastRow.firstChild.textContent = `${nPast} lecture${nPast === 1 ? ' is' : 's are'} dated before today: `;
@@ -298,6 +307,33 @@
     }
     if (!rows.length && !errors.length && !(current.updates || []).length) results.append(el('div', { class: 'hint' }, 'Nothing new to add.'));
     refreshSave();
+  }
+
+  function refreshAI() {
+    aiBtn.textContent = Gemini.hasKey() ? '✨ Read with Gemini AI' : '✨ Read with Gemini AI (needs key)';
+  }
+
+  async function runAI() {
+    if (aiAbort) { aiAbort.abort(); return; }              // second click = cancel
+    if (!Gemini.hasKey() && !(await Gemini.openSettings())) return;
+    const text = ta.value;
+    if (!text.trim()) return;
+    aiAbort = new AbortController();
+    aiBtn.textContent = 'Cancel'; aiBtn.disabled = false;
+    aiStatus.hidden = false; aiStatus.className = 'hint'; aiStatus.textContent = 'Asking Gemini…';
+    try {
+      const out = await Gemini.extractPlanner(text, {
+        signal: aiAbort.signal, defaultDuration: +durIn.value || 90,
+        onProgress: (i, n) => { aiStatus.textContent = `Asking Gemini… part ${i + 1} of ${n}`; }
+      });
+      ta.value = out;                                      // the clean rows appear in the box, editable, then go through the normal preview
+      aiStatus.textContent = 'Gemini finished. Check the preview below before saving.';
+    } catch (e) {
+      aiStatus.className = 'err';
+      aiStatus.textContent = e.name === 'AbortError' ? 'Cancelled.' : e.message;
+    } finally {
+      aiAbort = null; refreshAI(); preview();
+    }
   }
 
   function rowsToSave() {
@@ -327,6 +363,7 @@
       if (!dlg) build();
       ta.value = ''; dlg.querySelector('input[type=file]').value = '';
       clearSample.checked = true; pastSel.value = 'missed';
+      aiStatus.hidden = true; refreshAI();
       preview();
       dlg.showModal();
     }
