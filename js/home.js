@@ -36,6 +36,9 @@
   function countdown(st) {
     const t = D.today();
     const wrap = el('section', { class: 'countdown card' });
+    wrap.append(el('button', { class: 'theme-btn', type: 'button', title: Theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode',
+      'aria-label': Theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode',
+      onclick: () => { Theme.set(Theme.isDark() ? 'light' : 'dark'); App.render(); } }, Theme.isDark() ? '☀️' : '🌙'));
     const hasDate = !!st.examDate;
     const left = hasDate ? D.diff(t, st.examDate) : 0;
     const start = st.planStart && st.planStart < t ? st.planStart : t;
@@ -109,7 +112,11 @@
     const hasData = st.lectures.some(l => !l.sample) || st.tests.some(t => !t.sample);
     const stale = hasData && (days == null || days >= 7);
     return el('section', { class: 'card backup' + (stale ? ' stale' : '') },
-      el('h2', {}, 'Backup & data'),
+      el('h2', {}, 'Settings & backup'),
+      el('div', { class: 'theme-row', role: 'group', 'aria-label': 'Appearance' }, el('span', {}, 'Appearance'),
+        [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([m, label]) =>
+          el('button', { type: 'button', class: 'seg' + (Theme.get() === m ? ' on' : ''), 'aria-pressed': String(Theme.get() === m),
+            onclick: () => { Theme.set(m); App.render(); } }, label))),
       el('p', { class: 'hint' }, st.lastBackup ? `Last backup: ${days === 0 ? 'today' : days + ' day' + (days === 1 ? '' : 's') + ' ago'}.` : 'No backup yet.',
         stale ? ' Your data lives only in this browser, so export a copy now and then.' : ''),
       el('div', { class: 'backup-btns' },

@@ -17,7 +17,7 @@
     const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img',
       'aria-label': 'Test percentage trend: ' + pts.map(t => `${t.name} ${fmtPct(pct(t))}`).join(', ') });
     const defs = sv('defs', {}), g = sv('linearGradient', { id: 'areaGrad', x1: 0, y1: 0, x2: 0, y2: 1 });
-    g.append(sv('stop', { offset: '0%', 'stop-color': '#3b3a86', 'stop-opacity': .28 }), sv('stop', { offset: '100%', 'stop-color': '#3b3a86', 'stop-opacity': 0 }));
+    g.append(sv('stop', { offset: '0%', style: 'stop-color: var(--indigo)', 'stop-opacity': .3 }), sv('stop', { offset: '100%', style: 'stop-color: var(--indigo)', 'stop-opacity': 0 }));
     defs.append(g); svg.append(defs);
     const y = v => T + (1 - v / 100) * (H - T - B);
     [0, 25, 50, 75, 100].forEach(v => {
