@@ -8,11 +8,12 @@
 
   const open = () => dbp || (dbp = new Promise((res, rej) => {
     if (!window.indexedDB) { rej(new Error('This browser does not allow the Library (no IndexedDB).')); return; }
-    const r = indexedDB.open(DB, 1);
+    const r = indexedDB.open(DB, 2);
     r.onupgradeneeded = () => {
       const d = r.result;
-      d.createObjectStore('books', { keyPath: 'id' });
-      d.createObjectStore('chunks', { keyPath: 'id', autoIncrement: true }).createIndex('bookId', 'bookId');
+      if (!d.objectStoreNames.contains('books')) d.createObjectStore('books', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('chunks')) d.createObjectStore('chunks', { keyPath: 'id', autoIncrement: true }).createIndex('bookId', 'bookId');
+      if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');      // the original PDFs, so you can read them in the app
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -79,7 +80,7 @@
   }
 
   /** rawPages: array of page texts. Returns { id, pages, empty, subject } where empty = pages with no text (scans). */
-  async function add(name, subject, rawPages) {
+  async function add(name, subject, rawPages, file) {
     const db = await open();
     const prep = prepare(rawPages);
     const id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -96,8 +97,10 @@
       rows.slice(i, i + 2000).forEach(r => st.add(r)); await done(t);
     }
     const finalSubject = subject || prep.subject;
-    const t = db.transaction('books', 'readwrite');
-    t.objectStore('books').put({ id, name, title: prep.title(name), subject: finalSubject, pages: rawPages.length, empty, chars, added: new Date().toISOString() });
+    const keepFile = !!(file && /\.pdf$/i.test(name));
+    const t = db.transaction(keepFile ? ['books', 'files'] : ['books'], 'readwrite');
+    t.objectStore('books').put({ id, name, title: prep.title(name), subject: finalSubject, pages: rawPages.length, empty, chars, size: file ? file.size : 0, hasFile: keepFile, added: new Date().toISOString() });
+    if (keepFile) t.objectStore('files').put(file, id);
     await done(t);
     index = null;
     return { id, pages: rawPages.length, empty, subject: finalSubject };
@@ -105,8 +108,8 @@
 
   async function remove(id) {
     const db = await open();
-    const t = db.transaction(['books', 'chunks'], 'readwrite');
-    t.objectStore('books').delete(id);
+    const t = db.transaction(['books', 'chunks', 'files'], 'readwrite');
+    t.objectStore('books').delete(id); t.objectStore('files').delete(id);
     const cur = t.objectStore('chunks').index('bookId').openKeyCursor(IDBKeyRange.only(id));
     cur.onsuccess = () => { const c = cur.result; if (c) { t.objectStore('chunks').delete(c.primaryKey); c.continue(); } };
     await done(t); index = null;
@@ -148,7 +151,8 @@
     const ix = await load();
     if (!ix.docs.length) return [];
     let pool = ix.docs;
-    if (opts.subject) {
+    if (opts.bookId) pool = pool.filter(d => d.book.id === opts.bookId);
+    else if (opts.subject) {
       const s = String(opts.subject).toLowerCase();
       const sub = pool.filter(d => d.book.subject && (d.book.subject.toLowerCase() === s || s.includes(d.book.subject.toLowerCase()) || d.book.subject.toLowerCase().includes(s)));
       if (sub.length) pool = sub;
@@ -191,10 +195,24 @@
     return best;
   }
 
+  async function getBook(id) { const db = await open(); return wrap(db.transaction('books').objectStore('books').get(id)); }
+  async function getFile(id) { const db = await open(); return wrap(db.transaction('files').objectStore('files').get(id)); }
+  async function chunksOfBook(id) { const db = await open(); return wrap(db.transaction('chunks').objectStore('chunks').index('bookId').getAll(IDBKeyRange.only(id))); }
+  /** Text of one PDF page (as stored: header/footer removed). */
+  async function pageText(id, page) { return (await chunksOfBook(id)).filter(c => c.page === page).map(c => c.text).join('\n'); }
+  /** Section headings of a book with the page each starts on, for a contents list. */
+  async function outline(id) {
+    const seen = new Set(), out = [];
+    (await chunksOfBook(id)).sort((a, b) => a.page - b.page).forEach(c => { if (c.heading && !seen.has(c.heading)) { seen.add(c.heading); out.push({ heading: c.heading, page: c.page, label: c.label }); } });
+    return out;
+  }
+  /** Printed label of a PDF page (e.g. "2.6"), if the book has one. */
+  async function labelOf(id, page) { const c = (await chunksOfBook(id)).find(x => x.page === page && x.label); return c ? c.label : ''; }
+
   /** "Chapter 2 - Framework ..., page 2.6, section 4. STATUS OF ..." */
   const cite = h => `${h.book.title || h.book.name}, page ${h.label || h.page}` + (h.label ? ` (PDF page ${h.page})` : '') + (h.heading ? `, section "${h.heading}"` : '');
 
   const stats = async () => { const b = await list(); return { books: b.length, pages: b.reduce((s, x) => s + x.pages, 0), chars: b.reduce((s, x) => s + x.chars, 0) }; };
 
-  window.Library = { cite, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
+  window.Library = { cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
 })();

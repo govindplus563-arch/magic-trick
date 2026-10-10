@@ -313,6 +313,7 @@
   function sources(hits) {
     return el('details', { class: 'sources' }, el('summary', {}, `📚 From your books (${hits.length} passages)`),
       hits.map((h, i) => el('div', { class: 'src' }, el('div', { class: 'src-h' }, `[${i + 1}] ${Library.cite(h)}`),
+        h.book.hasFile ? el('a', { class: 'btn outline sm', href: `#book/${h.book.id}/${h.page}`, style: 'margin-top:6px', onclick: () => dlg.close() }, '📖 Open this page') : null,
         el('div', { class: 'src-t' }, h.text.length > 420 ? h.text.slice(0, 420) + '…' : h.text))));
   }
 

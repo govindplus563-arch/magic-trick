@@ -120,5 +120,8 @@
     return file.text();   // csv, tsv, txt, anything else treated as text
   }
 
-  window.FileText = { read, readPages, ACCEPT: '.csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,.docx,.pdf,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+  /** Loads pdf.js (once) and returns it, for the in-app book viewer. */
+  async function pdfjs() { await loadScript('vendor/pdf.min.js'); pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js'; return pdfjsLib; }
+
+  window.FileText = { read, readPages, pdfjs, ACCEPT: '.csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,.docx,.pdf,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
 })();
