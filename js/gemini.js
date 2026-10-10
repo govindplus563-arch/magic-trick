@@ -12,8 +12,8 @@
   let dlg;
 
   function settings() {
-    try { const s = JSON.parse(localStorage.getItem(LS) || '{}'); return { key: s.key || '', model: s.model || DEFAULT_MODEL, readRules: s.readRules || '', chatRules: s.chatRules || '' }; }
-    catch (e) { return { key: '', model: DEFAULT_MODEL, readRules: '', chatRules: '' }; }
+    try { const s = JSON.parse(localStorage.getItem(LS) || '{}'); return { key: s.key || '', model: s.model || DEFAULT_MODEL, backupModel: s.backupModel || '', readRules: s.readRules || '', chatRules: s.chatRules || '' }; }
+    catch (e) { return { key: '', model: DEFAULT_MODEL, backupModel: '', readRules: '', chatRules: '' }; }
   }
   function saveSettings(s) { try { localStorage.setItem(LS, JSON.stringify(s)); } catch (e) { /* private mode: not saved */ } }
   const update = patch => saveSettings(Object.assign(settings(), patch));
@@ -29,6 +29,7 @@
             el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener', class: 'link' }, 'aistudio.google.com/apikey'), '.'),
           el('label', {}, 'API key', key),
           el('label', {}, 'Model', model),
+          el('label', {}, 'Backup model (optional, used when the main one is rate-limited or too slow)', el('input', { type: 'text', name: 'backupModel', autocomplete: 'off', list: 'geminiModels', placeholder: 'e.g. a Gemma model from "Find models"' })),
           el('div', { class: 'ai-row' },
             el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'find' }, 'Find models'),
             el('span', { class: 'hint', 'data-role': 'found', style: 'margin:0' }, 'Lists the models your key can use.')),
@@ -47,11 +48,11 @@
         dlg._f = f; document.body.append(dlg);
       }
       const f = dlg._f, s = settings();
-      f.elements.key.value = s.key; f.elements.model.value = s.model; f.elements.readRules.value = s.readRules; f.elements.chatRules.value = s.chatRules;
+      f.elements.key.value = s.key; f.elements.model.value = s.model; f.elements.backupModel.value = s.backupModel; f.elements.readRules.value = s.readRules; f.elements.chatRules.value = s.chatRules;
       const done = v => { dlg.removeEventListener('close', onClose); resolve(v); };
       const onClose = () => done(settings().key ? true : false);
       dlg.addEventListener('close', onClose);
-      f.onsubmit = e => { e.preventDefault(); update({ key: f.elements.key.value.trim(), model: f.elements.model.value.trim() || DEFAULT_MODEL, readRules: f.elements.readRules.value.trim(), chatRules: f.elements.chatRules.value.trim() }); dlg.close(); };
+      f.onsubmit = e => { e.preventDefault(); update({ key: f.elements.key.value.trim(), model: f.elements.model.value.trim() || DEFAULT_MODEL, backupModel: f.elements.backupModel.value.trim(), readRules: f.elements.readRules.value.trim(), chatRules: f.elements.chatRules.value.trim() }); dlg.close(); };
       f.querySelector('[data-act=cancel]').onclick = () => dlg.close();
       const found = f.querySelector('[data-role=found]');
       f.querySelector('[data-act=find]').onclick = async () => {
@@ -63,7 +64,9 @@
           f.querySelector('#geminiModels').replaceChildren(...names.map(n => el('option', { value: n })));
           const best = pickBest(names);
           if (best && !names.includes(f.elements.model.value.trim()) && f.elements.model.value.trim() !== DEFAULT_MODEL) f.elements.model.value = best;
-          found.textContent = names.length ? `${names.length} models available. Suggested: ${best || 'none'}. Tap the Model box to pick another.` : 'No models available for this key.';
+          const bk = pickBackup(names);
+          if (bk && !f.elements.backupModel.value.trim()) f.elements.backupModel.value = bk;
+          found.textContent = names.length ? `${names.length} models available. Main: ${best || 'none'}. Backup: ${bk || 'none found'}. Tap a box to pick another.` : 'No models available for this key.';
         } catch (e) { found.textContent = e.message; }
       };
       f.querySelector('[data-act=forget]').onclick = () => { update({ key: '' }); f.elements.key.value = ''; };
@@ -95,6 +98,12 @@
     const ver = n => parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
     ok.sort((a, b) => (/preview/i.test(a) - /preview/i.test(b)) || ver(b) - ver(a) || a.length - b.length);   // stable models first
     return ok[0] || names.find(n => /^gemini-/.test(n) && !/embed|image|tts|live|audio/.test(n)) || null;
+  }
+
+  /** A backup with generous free limits: the largest Gemma, else a Flash-Lite. */
+  function pickBackup(names) {
+    const gem = names.filter(n => /^gemma/i.test(n) && !/embed|vision-only/i.test(n)).sort((a, b) => (parseFloat((b.match(/(\d+)b/i) || [0, 0])[1]) - parseFloat((a.match(/(\d+)b/i) || [0, 0])[1])) || b.localeCompare(a));
+    return gem[0] || names.find(n => /flash-lite/i.test(n) && !/preview|image|tts|live|audio/i.test(n)) || '';
   }
 
   const SCHEMA = {
@@ -137,7 +146,7 @@
   });
 
   /** One generateContent call. Returns the model's text. Gives up after timeoutMs, retries 429/5xx twice. */
-  async function generate(s, body, signal, timeoutMs) {
+  async function generate(s, body, signal, timeoutMs, noRetry) {
     const url = `${API}/models/${encodeURIComponent(s.model)}:generateContent`;
     const payload = JSON.stringify(body);
     const limit = timeoutMs || 45000;
@@ -153,7 +162,7 @@
         if (res.ok) j = await res.json();
         else { try { msg = (await res.json()).error.message || ''; } catch (e) { /* ignore */ } }
       } catch (e) {
-        if (timedOut) throw new Error(`Gemini did not answer within ${Math.round(limit / 1000)} seconds, so I stopped waiting. Try again, or pick a lighter model in AI settings → Find models.`);
+        if (timedOut) { const te = new Error(`Gemini did not answer within ${Math.round(limit / 1000)} seconds, so I stopped waiting. Try again, or pick a lighter model in AI settings → Find models.`); te.code = 'TIMEOUT'; throw te; }
         if (e.name === 'AbortError') throw e;
         throw new Error('Could not reach Gemini. Check your internet connection.');
       } finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', relay); }
@@ -164,39 +173,80 @@
         if (cand.finishReason === 'MAX_TOKENS') throw new Error('Gemini ran out of space for its answer. Try a smaller request.');
         return part;
       }
+      if (res.status === 429 && noRetry) { const re = new Error('Gemini rate limit reached.'); re.code = 'RATE_LIMIT'; throw re; }   // a backup model will answer instead
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(4000 * (attempt + 1), signal); continue; }
+      if (res.status === 400 && /(instruction|json mode|response_mime_type|response ?schema|mime type)/i.test(msg) && !/api key/i.test(msg)) { const ce = new Error(msg); ce.code = 'NEEDS_COMPAT'; throw ce; }
       if (res.status === 400 && /thinking/i.test(msg)) { const e = new Error(msg); e.code = 'BAD_THINKING'; throw e; }
       if (res.status === 400 && /api key/i.test(msg)) throw new Error('Gemini rejected the API key. Check it in AI settings.');
       if (res.status === 401 || res.status === 403) throw new Error('Gemini refused the request (check the API key and that the Generative Language API is enabled). ' + msg);
       if (res.status === 404) { const e = new Error(`Model "${s.model}" was not found.`); e.code = 'MODEL_NOT_FOUND'; throw e; }
-      if (res.status === 429) throw new Error('Gemini rate limit reached. Wait a minute and try again.');
+      if (res.status === 429) { const re = new Error('Gemini rate limit reached. Wait a minute and try again.'); re.code = 'RATE_LIMIT'; throw re; }
       throw new Error(`Gemini error ${res.status}. ${msg}`.trim());
     }
   }
 
-  /** Answers fastest: asks the model not to "think" first. Models that insist on thinking get the plain request. */
-  async function quick(s, body, opts) {
-    const fast = JSON.parse(JSON.stringify(body));
-    fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
-    try { return await generate(s, fast, opts.signal, opts.timeoutMs); }
-    catch (e) { if (e.code === 'BAD_THINKING') return generate(s, body, opts.signal, opts.timeoutMs); throw e; }
+  /** For models that cannot take a system prompt or JSON mode (e.g. Gemma): one plain prompt that asks for JSON text. */
+  function compat(body) {
+    const sys = body.systemInstruction ? body.systemInstruction.parts.map(p => p.text).join('\n') : '';
+    const schema = body.generationConfig && body.generationConfig.responseSchema;
+    const contents = JSON.parse(JSON.stringify(body.contents));
+    const first = contents.find(c => c.role === 'user') || contents[0];
+    const head = (sys ? sys + '\n\n=== CONVERSATION ===\n' : '') ;
+    const tail = schema ? '\n\nReply with ONLY valid JSON (no markdown, no code fences, no text before or after) that follows this schema:\n' + JSON.stringify(schema) : '';
+    first.parts = [{ text: head + first.parts.map(p => p.text).join('\n') }];
+    const last = contents[contents.length - 1];
+    last.parts = [{ text: last.parts.map(p => p.text).join('\n') + tail }];
+    return { contents, generationConfig: { temperature: (body.generationConfig || {}).temperature } };
   }
 
-  /** generate() + automatic switch to a working model when the saved one is retired. Returns parsed JSON. */
+  /** JSON from a model answer, even if it wrapped it in ```json fences or added a sentence around it. */
+  function parseLoose(text) {
+    try { return JSON.parse(text); } catch (e) { /* try to find it */ }
+    const t = String(text).replace(/```(?:json)?/gi, '');
+    const o = t.indexOf('{'), a = t.indexOf('[');
+    const start = o < 0 ? a : a < 0 ? o : Math.min(o, a);
+    const end = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
+    if (start >= 0 && end > start) return JSON.parse(t.slice(start, end + 1));
+    throw new Error('no json');
+  }
+
+  /** Answers fastest: asks the model not to "think" first. Models that insist on thinking get the plain request. */
+  async function quick(s, body, opts, noRetry) {
+    const fast = JSON.parse(JSON.stringify(body));
+    fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
+    try { return await generate(s, fast, opts.signal, opts.timeoutMs, noRetry); }
+    catch (e) { if (e.code === 'BAD_THINKING') return generate(s, body, opts.signal, opts.timeoutMs, noRetry); throw e; }
+  }
+
+  /** One model, with whatever tricks it needs. Gemma-style models go straight to the plain-prompt form and get the smaller prompt. */
+  async function attempt(model, body, opts, noRetry) {
+    const s = Object.assign(settings(), { model });
+    const small = /gemma/i.test(model);
+    const b = small && opts.compactBody ? opts.compactBody : body;
+    try { return small ? await generate(s, compat(b), opts.signal, opts.timeoutMs, noRetry) : await quick(s, b, opts, noRetry); }
+    catch (e) { if (e.code === 'NEEDS_COMPAT' && !small) return generate(s, compat(opts.compactBody || body), opts.signal, opts.timeoutMs, noRetry); throw e; }
+  }
+
+  /** The main model; when it is rate-limited or too slow, the backup model (if one is set). Returns parsed JSON. */
   async function runJSON(body, opts) {
     const s = settings();
     if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
+    const backup = s.backupModel && s.backupModel !== s.model ? s.backupModel : '';
     let text;
-    try { text = await quick(s, body, opts); }
+    try { text = await attempt(s.model, body, opts, !!backup); }
     catch (e) {
-      if (e.code !== 'MODEL_NOT_FOUND') throw e;
-      const best = pickBest(await listModels(s.key, opts.signal));
-      if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
-      if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
-      s.model = best; update({ model: best });
-      text = await quick(s, body, opts);
+      if (backup && (e.code === 'RATE_LIMIT' || e.code === 'TIMEOUT')) {
+        if (opts.onNotice) opts.onNotice(`${s.model} was ${e.code === 'TIMEOUT' ? 'too slow' : 'rate-limited'}, so ${backup} answered.`);
+        text = await attempt(backup, body, opts, false);
+      } else if (e.code === 'MODEL_NOT_FOUND') {
+        const best = pickBest(await listModels(s.key, opts.signal));
+        if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
+        if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
+        update({ model: best });
+        text = await attempt(best, body, opts, false);
+      } else throw e;
     }
-    try { return JSON.parse(text); } catch (e) { throw new Error('Gemini sent an answer that could not be understood. Try again.'); }
+    try { return parseLoose(text); } catch (e) { throw new Error('The model sent an answer that could not be understood. Try again.'); }
   }
 
   const tidy = v => String(v == null ? '' : v).replace(/[\t\r\n"]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -229,12 +279,14 @@
 
   /** Chat turn: returns parsed { reply, actions } (see assistant.js for the schema and the system prompt). */
   function chatTurn(system, history, schema, opts) {
-    return runJSON({
-      systemInstruction: { parts: [{ text: system }] },
+    const mk = sys => ({
+      systemInstruction: { parts: [{ text: sys }] },
       contents: history.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
-    }, opts);
+    });
+    // models with a small per-minute token budget (Gemma) get a shorter prompt
+    return runJSON(mk(system), Object.assign({}, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { settings, openSettings, extractPlanner, chatTurn, listModels, pickBest, hasKey: () => !!settings().key };
+  window.Gemini = { settings, openSettings, extractPlanner, chatTurn, listModels, pickBest, pickBackup, hasKey: () => !!settings().key };
 })();

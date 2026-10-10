@@ -46,7 +46,7 @@
     else root.append(el('div', { class: 'card empty' }, el('strong', {}, (TABS.find(t => t.id === tab) || {}).label),
       el('br'), `Coming in ${PENDING[tab]}.`));
     if (Store.saveFailed) root.prepend(el('div', { class: 'warn' }, 'Your browser is blocking storage, so changes will be lost when you close this page. Use Export backup often, or turn off private browsing.'));
-    document.getElementById('chatFab').hidden = tab === 'settings' || tab === 'book';
+    document.getElementById('chatFab').hidden = false;
     renderNav();
     window.scrollTo(0, y); root.scrollTop = top;
   }
@@ -95,7 +95,7 @@
   }
 
   window.App = { render, openLectureDialog, openReschedule, toast };
-  window.addEventListener('hashchange', () => { window.scrollTo(0, 0); document.getElementById('view').scrollTop = 0; render(); });
+  window.addEventListener('hashchange', () => { Assistant.close(); window.scrollTo(0, 0); document.getElementById('view').scrollTop = 0; render(); });
   // Re-render when the day rolls over while the app stays open.
   let lastDay = Store.D.today();
   setInterval(() => { const d = Store.D.today(); if (d !== lastDay) { lastDay = d; render(); } }, 60000);

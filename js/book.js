@@ -91,7 +91,7 @@
 
       // search inside this book
       const results = el('div', { class: 'bk-results' });
-      const q = el('input', { type: 'search', class: 'mb-search', placeholder: 'Search inside this book', 'aria-label': 'Search inside this book' });
+      const q = el('input', { type: 'search', class: 'mb-search bk-q', placeholder: 'Search inside this book', 'aria-label': 'Search inside this book' });
       const run = async () => {
         const text = q.value.trim(); if (!text) { results.replaceChildren(); return; }
         const hits = await Library.search(text, { bookId: id, k: 8 });

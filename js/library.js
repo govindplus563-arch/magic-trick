@@ -41,7 +41,7 @@
     let n = '', kind = 'Chapter'; const out = [];
     head.forEach(l => {
       let m;
-      if ((m = l.match(/^(CHAPTER|MODULE|UNIT)\s*(\d+)?$/i))) { kind = titleCase(m[1]); if (m[2]) n = m[2]; return; }
+      if ((m = l.match(/^(CHAPTER|MODULE|UNIT)\s*(\d+)?\s*[:\-–]?\s*(.*)$/i)) && (m[2] || !m[3])) { kind = titleCase(m[1]); if (m[2]) n = m[2]; if (m[3]) out.push(m[3]); return; }
       if (/^\d{1,2}$/.test(l) && !n) { n = l; return; }
       if (/^[A-Z0-9 ,&'()\/:–-]{4,}$/.test(l) || out.length) out.push(l);
     });
@@ -74,12 +74,13 @@
       return { text: kept.join('\n'), label };
     });
     const top = [...subjects.entries()].sort((a, b) => b[1] - a[1])[0];
-    const title = s => s.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').replace(/^\s*\d+\s*[-_.]?\s*/, '').replace(/\s+-\s+/g, ' - ').replace(/\s+/g, ' ').trim();
+    const title = s => s.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').replace(/^\s*\d+\s*[-_.]?\s*/, '').replace(/^[a-z]{2,5}-[a-z]{2,6}\d{3,5}-/i, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
     return { pages, subject: top && top[1] >= 2 ? top[0].toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : '', title };
   }
 
   /** Break a page into ~900 character pieces on line boundaries and remember the current section heading. */
-  function chunksOf(pageText, state) {
+  function chunksOf(pageText, state, pageNo) {
+    if (state.heading && pageNo - (state.headingPage || pageNo) > 12) state.heading = '';   // answers / exercise pages after a long gap belong to no section
     const out = []; let cur = '';
     const flush = () => { if (cur.trim()) out.push({ text: cur, heading: state.heading }); cur = ''; };
     pageText.split('\n').forEach(raw => {
@@ -88,7 +89,7 @@
       const line = isTable ? cells.join(' | ') : cells.join(' ');
       if (!line.trim()) return;
       const h = line.match(SECTION);
-      if (h && line.length < 120) { flush(); state.heading = (h[1] + ' ' + h[2]).replace(/\s+/g, ' ').trim(); state.justSet = true; }
+      if (h && line.length < 120) { flush(); state.heading = (h[1] + ' ' + h[2]).replace(/\s+/g, ' ').trim(); state.headingPage = pageNo; state.justSet = true; }
       else if (state.justSet && /^[A-Z][A-Z0-9 ,&'()\/–-]{2,60}$/.test(line)) state.heading += ' ' + line;   // long headings wrap onto a second line
       else state.justSet = false;
       cur += (cur ? '\n' : '') + line;
@@ -108,7 +109,7 @@
     prep.pages.forEach((pg, i) => {
       if (!pg.text || pg.text.trim().length < 20) { empty++; return; }
       chars += pg.text.length;
-      chunksOf(pg.text, state).forEach(c => rows.push({ bookId: id, page: i + 1, label: pg.label, heading: c.heading, text: c.text }));
+      chunksOf(pg.text, state, i + 1).forEach(c => rows.push({ bookId: id, page: i + 1, label: pg.label, heading: c.heading, text: c.text }));
     });
     if (!rows.length) throw new Error('No readable text found. This file may be scanned images (photos of pages). Use a text-based PDF.');
     const dup = (await list()).find(b => b.pages === rawPages.length && b.chars === chars);

@@ -138,7 +138,7 @@
         el('div', {}, el('b', { class: due.length ? 'red' : '' }, String(due.length)), el('span', {}, 'to review today')),
         el('div', {}, el('b', {}, String(mastered)), el('span', {}, 'mastered'))),
       el('div', { class: 'backup-btns' },
-        due.length ? el('button', { class: 'btn primary', type: 'button', onclick: () => startReview(false) }, `Start review (${due.length})`)
+        !all.length ? null : due.length ? el('button', { class: 'btn primary', type: 'button', onclick: () => startReview(false) }, `Start review (${due.length})`)
           : el('button', { class: 'btn primary', type: 'button', disabled: all.length === mastered, onclick: () => startReview(true) }, all.length === mastered ? 'All mastered' : `Practice now (${all.length - mastered})`),
         el('button', { class: 'btn outline', type: 'button', onclick: () => openAdd() }, '+ Log mistake')),
       el('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Each mistake comes back after 1, 3, 7, 14 and 30 days. Say "Still weak" and it restarts from tomorrow. New mistakes are due tomorrow, but "Practice now" lets you go through them today.')));
