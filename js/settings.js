@@ -1,4 +1,4 @@
-/* Settings page (opened with the gear on Home): appearance, backup, AI, sample data. */
+/* Settings page (opened with the gear on Home): file uploads, appearance, backup, AI, sample data. */
 (function () {
   const { el } = HomeView;
   const { D } = Store;
@@ -51,6 +51,13 @@
     root.append(el('div', { class: 'page-head' },
       el('a', { class: 'back', href: '#home', 'aria-label': 'Back to Home' }, '‹ Back'),
       el('h2', { class: 'big' }, 'Settings')));
+
+    root.append(el('section', { class: 'card settings-card' },
+      el('h2', {}, 'Upload files'),
+      el('p', { class: 'hint' }, 'Load your lecture planner or test timetable from a PDF, Word, Excel, CSV or text file. You check a preview before anything is saved.'),
+      el('div', { class: 'uploads' },
+        el('button', { class: 'upbtn', onclick: () => Planner.open() }, TestsView.upIcon(), 'Upload Planner'),
+        el('button', { class: 'upbtn', onclick: () => TestsView.openTimetable() }, TestsView.upIcon(), 'Upload Test Timetable'))));
 
     root.append(backupCard(st));
 

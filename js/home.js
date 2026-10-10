@@ -109,14 +109,13 @@
 
     if (!list.length) {
       root.append(el('div', { class: 'empty card' }, 'No lectures planned for today.',
-        el('br'), 'Add one below or upload your planner.'));
+        el('br'), 'Add one below, or upload your planner from ⚙️ Settings.'));
     } else {
       list.forEach(l => root.append(lectureCard(l)));
     }
 
     root.append(el('div', { class: 'home-actions' },
-      el('button', { class: 'btn outline', onclick: () => App.openLectureDialog(t) }, '+ Add lecture'),
-      el('button', { class: 'btn outline', onclick: () => Planner.open() }, 'Upload planner')));
+      el('button', { class: 'btn outline', onclick: () => App.openLectureDialog(t) }, '+ Add lecture')));
 
     const days = st.lastBackup ? Math.floor((Date.now() - new Date(st.lastBackup)) / 864e5) : null;
     const hasData = st.lectures.some(l => !l.sample) || st.tests.some(t => !t.sample);

@@ -1,4 +1,4 @@
-/* Tests tab: uploads, add-test form, score list, % trend chart (inline SVG). */
+/* Tests tab: add-test form, score list, % trend chart (inline SVG). */
 (function () {
   const { el } = HomeView;
   const { D } = Store;
@@ -62,10 +62,6 @@
 
   function render(root) {
     const st = Store.get(), t = D.today();
-    root.append(el('div', { class: 'uploads' },
-      el('button', { class: 'upbtn', onclick: () => Planner.open() }, upIcon(), 'Upload Planner'),
-      el('button', { class: 'upbtn', onclick: openTimetable }, upIcon(), 'Upload Test Timetable')));
-
     const upcoming = st.testSchedule.filter(x => x.date >= t).sort((a, b) => a.date.localeCompare(b.date));
     if (upcoming.length) {
       root.append(el('div', { class: 'section-head' }, el('h2', {}, 'Upcoming Tests')));
@@ -199,5 +195,5 @@
     ttDlg._reset(); ttDlg.showModal();
   }
 
-  window.TestsView = { render };
+  window.TestsView = { render, openTimetable, upIcon };
 })();
