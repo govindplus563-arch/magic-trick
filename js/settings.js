@@ -128,6 +128,8 @@
       el('div', { class: 'backup-btns' },
         el('button', { class: 'btn outline sm', onclick: () => Gemini.openSettings().then(() => App.render()) }, 'AI settings & rules'))));
 
+    root.append(el('p', { class: 'hint center' }, 'App version: ' + (window.APP_VERSION || 'unknown')));
+
     if (st.sampleActive) {
       root.append(el('section', { class: 'card settings-card' },
         el('h2', {}, 'Sample data'),
