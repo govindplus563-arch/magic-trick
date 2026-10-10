@@ -99,6 +99,8 @@
   setInterval(() => { const d = Store.D.today(); if (d !== lastDay) { lastDay = d; render(); } }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastDay = Store.D.today(); render(); } });
 
+  document.getElementById('chatFab').addEventListener('click', () => Assistant.open());
+
   Store.init();
   render();
 })();

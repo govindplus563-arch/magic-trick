@@ -306,6 +306,50 @@
       save();
     },
 
+    // ---- undo for bulk edits (chat assistant) ----
+    undoInfo() {
+      try { const u = JSON.parse(localStorage.getItem('studyPlanner.undo') || 'null'); return u ? { label: u.label, at: u.at } : (Store._undo ? { label: Store._undo.label, at: Store._undo.at } : null); }
+      catch (e) { return Store._undo ? { label: Store._undo.label, at: Store._undo.at } : null; }
+    },
+    undo() {
+      let u = Store._undo;
+      try { u = JSON.parse(localStorage.getItem('studyPlanner.undo') || 'null') || u; } catch (e) { /* use memory copy */ }
+      if (!u) return null;
+      state = normalize(JSON.parse(u.json)); save();
+      Store._undo = null;
+      try { localStorage.removeItem('studyPlanner.undo'); } catch (e) { /* ignore */ }
+      return u.label;
+    },
+
+    /** Applies a batch of plan edits in one go, after saving an undo copy.
+     *  edits = { moves:[{id,date,orig}], done:[{id,value}], durations:[{id,min}], deletes:[id], exam, adds:[{date,subject,chapter,lecture,duration}] } */
+    applyEdits(edits, label) {
+      const u = { label, at: new Date().toISOString(), json: JSON.stringify(state) };
+      Store._undo = u;
+      try { localStorage.setItem('studyPlanner.undo', JSON.stringify(u)); } catch (e) { /* too big or blocked: memory copy only */ }
+      const t = D.today(), byId = new Map(state.lectures.map(l => [l.id, l]));
+      (edits.moves || []).forEach(m => { const l = byId.get(m.id); if (!l) return; if (m.orig && !l.origDate) l.origDate = l.date; l.date = m.date; l.cleared = false; });
+      (edits.durations || []).forEach(d => { const l = byId.get(d.id); if (l) l.duration = d.min; });
+      (edits.done || []).forEach(d => {
+        const l = byId.get(d.id); if (!l || l.done === d.value) return;
+        l.done = d.value;
+        if (d.value) {
+          l.doneOn = l.date < t ? l.date : t;
+          if (l.date >= t) addRevisionsFor(state, l, l.doneOn, false);   // no revision flood for lectures marked done retroactively
+        } else { l.doneOn = null; state.revisions = state.revisions.filter(r => r.lectureId !== l.id || r.done); }
+      });
+      if (edits.deletes && edits.deletes.length) {
+        const gone = new Set(edits.deletes);
+        state.lectures = state.lectures.filter(l => !gone.has(l.id));
+        state.revisions = state.revisions.filter(r => !gone.has(r.lectureId));
+      }
+      (edits.adds || []).forEach(a => Store.addLecture(a));
+      if (edits.exam && D.isValid(edits.exam)) Store.setExamDate(edits.exam);
+      const dates = state.lectures.map(l => l.date).sort();
+      if (dates.length && (!state.planStart || dates[0] < state.planStart)) state.planStart = dates[0];
+      save();
+    },
+
     lectureById(id) { return state.lectures.find(l => l.id === id); },
 
     revisionsOn(date) {

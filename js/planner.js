@@ -245,7 +245,7 @@
   const { el } = HomeView;
   const D = Store.D;
   const TEMPLATE = 'Date,Subject,Chapter,Lecture,Duration\n2026-10-12,Taxation,GST - Input Tax Credit,Lec 16,1h 30m\n13/10/2026,Law,Companies Act,9,75 min\n14 Oct 2026,Audit,Nature of Audit,7,1:15\n';
-  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, undSel, undRow, aiBtn, aiHint, aiStatus, aiAbort = null, current = null;
+  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, undSel, undRow, aiBtn, aiNote, aiHint, aiStatus, aiAbort = null, current = null;
 
   function build() {
     dlg = el('dialog', { class: 'sheet wide' });
@@ -291,6 +291,7 @@
       el('div', { class: 'ai-row' },
         aiBtn = el('button', { type: 'button', class: 'btn outline sm', onclick: runAI }, '✨ Read with Gemini AI'),
         el('button', { type: 'button', class: 'btn ghost sm', onclick: () => Gemini.openSettings().then(refreshAI) }, 'AI settings')),
+      aiNote = el('input', { type: 'text', class: 'ai-note', maxlength: 400, placeholder: 'Optional: tell Gemini what to do, e.g. "only Taxation and Law"', 'aria-label': 'Instructions for Gemini' }),
       aiHint = el('div', { class: 'hint ai-hint', hidden: true }, 'Some rows could not be read. Gemini AI can often understand unusual planner layouts. It sends the planner text to Google when you press the button.'),
       aiStatus = el('div', { class: 'hint', hidden: true }),
       results, durRow, undRow, pastRow, sampleRow,
@@ -357,7 +358,7 @@
     aiStatus.hidden = false; aiStatus.className = 'hint'; aiStatus.textContent = 'Asking Gemini…';
     try {
       const out = await Gemini.extractPlanner(text, {
-        signal: aiAbort.signal, defaultDuration: +durIn.value || 90,
+        signal: aiAbort.signal, defaultDuration: +durIn.value || 90, note: aiNote.value.trim(),
         onProgress: (i, n) => { aiStatus.textContent = `Asking Gemini… part ${i + 1} of ${n}`; },
         onNotice: m => { notice = m; }
       });
