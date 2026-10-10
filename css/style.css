@@ -205,3 +205,46 @@ h2.big { font-size: 26px; }
 .bl-actions { display: flex; gap: 6px; }
 .empty.slim { padding: 12px; box-shadow: none; background: transparent; border: 1px dashed var(--line); }
 .nav-badge { position: absolute; top: 0; left: calc(50% + 6px); background: var(--red); color: #fff; font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 99px; padding: 0 4px; }
+
+/* Progress */
+.donut-card { padding: 16px; text-align: center; }
+.ring.small-ring { width: 170px; height: 170px; margin: 10px auto; }
+.stats { display: flex; justify-content: center; gap: 24px; font-size: 12px; color: var(--muted); }
+.stats div { display: flex; flex-direction: column; align-items: center; max-width: 140px; }
+.stats b { font-size: 18px; color: var(--text); }
+.ptable { margin-top: 14px; padding: 4px 6px; overflow: hidden; }
+.ptable table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ptable th { font-size: 12px; color: var(--muted); text-align: left; padding: 10px 8px 6px; }
+.ptable td { padding: 9px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.ptable .num { text-align: center; }
+.ptable .subj { font-weight: 600; overflow-wrap: anywhere; }
+.pct { width: 76px; }
+.pct-txt { font-weight: 700; font-size: 13px; }
+.red { color: var(--red) !important; font-weight: 700; }
+.grn { color: var(--green); }
+.mini { height: 5px; background: var(--track); border-radius: 9px; margin-top: 3px; overflow: hidden; }
+.mini-fill { height: 100%; background: var(--green); border-radius: 9px; }
+
+/* Tests */
+.uploads { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.upbtn { background: #fff; border: 2px dashed #b4b4d6; border-radius: 16px; padding: 14px 8px; color: var(--indigo); font-weight: 600; font-size: 13.5px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.upbtn:hover { background: #f7f7ff; }
+.up-ico { width: 26px; height: 26px; }
+.score { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); padding: 12px 8px 12px 14px; margin-bottom: 10px; }
+.score-main { flex: 1; min-width: 0; }
+.score-right { text-align: right; }
+.score-m { font-size: 13px; color: var(--muted); }
+.score-p { font-size: 20px; font-weight: 800; }
+.x { background: none; border: 0; font-size: 22px; line-height: 1; color: #9a9ab8; padding: 4px 8px; cursor: pointer; }
+.x:hover { color: var(--red); }
+.chart-card { padding: 12px; margin-top: 14px; }
+.chart-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.chart-head select { border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; background: #fff; font: inherit; font-size: 13px; max-width: 55%; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { font-size: 9px; fill: var(--muted); }
+.chart .val { font-size: 9px; font-weight: 700; fill: var(--indigo); }
+.chart .tline { fill: none; stroke: var(--teal); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart .tdot { fill: #fff; stroke: var(--indigo); stroke-width: 2.5; }
+.live { font-size: 14px; color: var(--muted); margin: 2px 0 8px; }
+.live-pct { display: inline; font-weight: 800; color: var(--indigo); font-size: 18px; }

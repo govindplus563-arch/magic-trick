@@ -18,8 +18,8 @@
     { id: 'home', label: 'Home' }, { id: 'revision', label: 'Revision' }, { id: 'progress', label: 'Progress' },
     { id: 'tests', label: 'Tests' }, { id: 'backlog', label: 'Backlog' }
   ];
-  const PENDING = { progress: 'step 4', tests: 'step 4' };
-  const VIEWS = { home: HomeView, revision: RevisionView, backlog: BacklogView };
+  const PENDING = {};
+  const VIEWS = { home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
 
   let tab = 'home';
 

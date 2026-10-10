@@ -107,27 +107,38 @@
     return lectures;
   }
 
+  function seedTests(s) {
+    const t = D.today();
+    [['Mock Test 1', 'Costing', 48, 100, -13], ['Mock Test 2', 'Adv Accounting', 62, 100, -9], ['Mock Test 3', 'Law', 75, 100, -6],
+     ['Mock Test 4', 'Taxation', 46, 80, -3], ['Mock Test 5', 'Audit', 66, 100, -1]]
+      .forEach(x => s.tests.push({ id: uid(), name: x[0], subject: x[1], obtained: x[2], total: x[3], date: D.add(t, x[4]), sample: true }));
+    [['Mock Test 6', 'Costing', 3], ['Mock Test 7', 'Taxation', 8]]
+      .forEach(x => s.testSchedule.push({ id: uid(), name: x[0], subject: x[1], date: D.add(t, x[2]), sample: true }));
+  }
+
   function fresh() {
     const t = D.today();
     const s = {
-      version: 2,
+      version: 3,
       examDate: D.add(t, 47),
       examName: 'CA Inter Exam',
       planStart: D.add(t, -14),
       sampleActive: true,
       lectures: sampleData(),
       revisions: [],
-      tests: []
+      tests: [],
+      testSchedule: []
     };
+    seedTests(s);
     s.lectures.filter(l => l.done).forEach(l => addRevisionsFor(s, l, l.doneOn, true));
     return s;
   }
 
   function normalize(s) {
     const f = { version: 1, examDate: null, examName: 'CA Inter Exam', planStart: null,
-                sampleActive: false, lectures: [], revisions: [], tests: [] };
+                sampleActive: false, lectures: [], revisions: [], tests: [], testSchedule: [] };
     s = Object.assign(f, s && typeof s === 'object' ? s : {});
-    ['lectures', 'revisions', 'tests'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
+    ['lectures', 'revisions', 'tests', 'testSchedule'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
     if (s.examDate && !D.isValid(s.examDate)) s.examDate = null;
     return s;
   }
@@ -156,6 +167,10 @@
         state.lectures.filter(l => l.done && l.doneOn && !state.revisions.some(r => r.lectureId === l.id))
           .forEach(l => addRevisionsFor(state, l, l.doneOn, !!l.sample));
         state.version = 2;
+      }
+      if (state.version < 3) {
+        if (state.sampleActive && !state.tests.length) seedTests(state);
+        state.version = 3;
       }
       save();
     },
@@ -202,6 +217,41 @@
       else state.revisions = state.revisions.filter(r => r.lectureId !== l.id || r.done);
       save();
       return l;
+    },
+
+    addTest(t) {
+      state.tests.push({ id: uid(), name: t.name.trim(), subject: t.subject.trim(), obtained: +t.obtained, total: +t.total, date: t.date });
+      save();
+    },
+    deleteTest(id) { state.tests = state.tests.filter(x => x.id !== id); save(); },
+
+    addTimetable(rows, replaceSample) {
+      if (replaceSample) state.testSchedule = state.testSchedule.filter(x => !x.sample);
+      rows.forEach(r => state.testSchedule.push({ id: uid(), name: r.name, subject: r.subject, date: r.date }));
+      save();
+    },
+    deleteTimetable(id) { state.testSchedule = state.testSchedule.filter(x => x.id !== id); save(); },
+
+    /** Expected = lectures planned (original date) up to today. Actual = lectures ticked. */
+    progress() {
+      const t = D.today(), map = {};
+      state.lectures.forEach(l => {
+        const k = l.subject.trim().toLowerCase();
+        const o = map[k] || (map[k] = { name: l.subject.trim(), expected: 0, actual: 0, total: 0 });
+        o.total++;
+        if (l.done) o.actual++;
+        if ((l.origDate || l.date) <= t) o.expected++;
+      });
+      const subjects = Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(o => {
+        o.pct = o.expected ? Math.min(100, Math.round(o.actual / o.expected * 100)) : (o.actual ? 100 : null);
+        o.behind = o.actual < o.expected;
+        return o;
+      });
+      const total = state.lectures.length, done = state.lectures.filter(l => l.done).length;
+      const revs = state.revisions.filter(r => !r.cleared);
+      const revDue = revs.filter(r => r.due <= t);
+      return { subjects, total, done, overall: total ? Math.round(done / total * 100) : 0,
+        revDone: revDue.filter(r => r.done).length, revDue: revDue.length };
     },
 
     lectureById(id) { return state.lectures.find(l => l.id === id); },
@@ -252,6 +302,7 @@
       state.lectures = state.lectures.filter(x => !x.sample);
       state.revisions = state.revisions.filter(x => !x.sample);
       state.tests = state.tests.filter(x => !x.sample);
+      state.testSchedule = state.testSchedule.filter(x => !x.sample);
       state.sampleActive = false;
       state.planStart = state.lectures.length ? state.lectures.map(x => x.date).sort()[0] : D.today();
       save();

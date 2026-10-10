@@ -194,6 +194,7 @@
   }
 
   window.Planner = {
+    util: { splitLine, parseDate },
     open() {
       if (!dlg) build();
       ta.value = ''; dlg.querySelector('input[type=file]').value = '';
