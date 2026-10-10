@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3b3a86">
+<title>CA Inter Study Planner</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="shell">
+  <main id="view" class="view" aria-live="polite"></main>
+  <nav id="nav" class="nav" aria-label="Main"></nav>
+</div>
+
+<dialog id="lectureDialog" class="sheet">
+  <form id="lectureForm" method="dialog" autocomplete="off">
+    <h2>Add lecture</h2>
+    <label>Date <input type="date" name="date" required></label>
+    <label>Subject <input type="text" name="subject" required maxlength="60" placeholder="e.g. Taxation"></label>
+    <label>Chapter <input type="text" name="chapter" required maxlength="120" placeholder="e.g. GST - Input Tax Credit"></label>
+    <div class="row2">
+      <label>Lecture no. <input type="text" name="lecture" required maxlength="10" placeholder="12"></label>
+      <label>Duration (min) <input type="number" name="duration" required min="1" max="600" placeholder="90"></label>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="js/store.js"></script>
+<script src="js/home.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
