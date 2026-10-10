@@ -28,6 +28,7 @@
           el('p', { class: 'hint' }, 'Get a free key at ',
             el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener', class: 'link' }, 'aistudio.google.com/apikey'), '.'),
           el('label', {}, 'API key', key),
+          el('button', { type: 'button', class: 'linkbtn', 'data-act': 'forget', style: 'margin:-4px 0 8px' }, 'Remove the key from this device'),
           el('label', {}, 'Model', model),
           el('label', {}, 'Backup model (optional, used when the main one is rate-limited or too slow)', el('input', { type: 'text', name: 'backupModel', autocomplete: 'off', list: 'geminiModels', placeholder: 'e.g. a Gemma model from "Find models"' })),
           el('div', { class: 'ai-row' },
@@ -48,7 +49,6 @@
           el('p', { class: 'hint' }, 'Privacy: when you press "Read with Gemini AI", the text of your planner is sent to Google. ',
             'The key is saved only in this browser and is not included in Export. Do not publish a copy of this app that has your key in it.'),
           el('div', { class: 'actions' },
-            el('button', { type: 'button', class: 'btn ghost', 'data-act': 'forget' }, 'Remove key'),
             el('button', { type: 'button', class: 'btn ghost', 'data-act': 'cancel' }, 'Cancel'),
             el('button', { type: 'submit', class: 'btn primary' }, 'Save')));
         dlg = el('dialog', { class: 'sheet' }, f);
@@ -339,8 +339,9 @@
     // with a backup ready, do not wait long for the main model: chat questions give it 20 s
     const mainOpts = backup && (opts.timeoutMs || 45000) <= 60000 ? Object.assign({}, opts, { timeoutMs: Math.min(opts.timeoutMs || 45000, 20000) }) : opts;
     let text, used = s.model;
+    const done = r => { if (opts.onModel) opts.onModel(used); return r; };
     const read = () => { try { return parseAnswer(text, opts.expect || 'chat'); } catch (e) { const er = new Error(`${used} sent an answer that could not be read.`); er.code = 'UNREADABLE'; throw er; } };
-    try { text = await attempt(s.model, body, mainOpts, !!backup); return read(); }
+    try { text = await attempt(s.model, body, mainOpts, !!backup); return done(read()); }
     catch (e) {
       if (e.name === 'AbortError' || isAuth(e)) throw e;
       if (e.code === 'MODEL_NOT_FOUND' && !backup) {
@@ -348,12 +349,12 @@
         if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
         if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
         update({ model: best }); used = best;
-        text = await attempt(best, body, opts, false); return read();
+        text = await attempt(best, body, opts, false); return done(read());
       }
       if (!backup) throw e;
       if (opts.onNotice) opts.onNotice(`${s.model} ${why(e)}, so ${backup} answered.`);
       used = backup;
-      try { text = await attempt(backup, body, Object.assign({}, opts, { lastResort: true }), false); return read(); }
+      try { text = await attempt(backup, body, Object.assign({}, opts, { lastResort: true }), false); return done(read()); }
       catch (e2) { if (e2.name === 'AbortError') throw e2; throw new Error(`${s.model} ${why(e)}; ${backup} ${why(e2)}. Open AI settings → ⚡ Test speed to see which model works.`); }
     }
   }

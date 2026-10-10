@@ -128,7 +128,25 @@
       el('div', { class: 'backup-btns' },
         el('button', { class: 'btn outline sm', onclick: () => Gemini.openSettings().then(() => App.render()) }, 'AI settings & rules'))));
 
-    root.append(el('p', { class: 'hint center' }, 'App version: ' + (window.APP_VERSION || 'unknown')));
+    const ver = el('p', { class: 'hint center' }, 'App version: ' + (window.APP_VERSION || 'unknown') + '  ');
+    const upd = el('button', { class: 'linkbtn', type: 'button', style: 'color:var(--indigo)', onclick: () => checkUpdate(true) }, 'Check for updates');
+    ver.append(upd);
+    async function checkUpdate(manual) {
+      upd.textContent = 'Checking…';
+      try {
+        const txt = await (await fetch('js/version.js?t=' + Date.now(), { cache: 'no-store' })).text();
+        const online = (txt.match(/APP_VERSION\s*=\s*'([^']+)'/) || [])[1];
+        if (online && online !== window.APP_VERSION) {
+          upd.textContent = `New version ${online.split(' ')[0]} available. Tap to update`;
+          upd.onclick = async () => {
+            try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); const rs = await navigator.serviceWorker.getRegistrations(); for (const r of rs) await r.unregister(); } catch (e) { /* ignore */ }
+            location.reload();
+          };
+        } else upd.textContent = manual ? '✓ You have the latest version' : 'Check for updates';
+      } catch (e) { upd.textContent = manual ? 'Could not check (offline?)' : 'Check for updates'; }
+    }
+    root.append(ver);
+    checkUpdate(false);
 
     if (st.sampleActive) {
       root.append(el('section', { class: 'card settings-card' },

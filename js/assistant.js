@@ -287,7 +287,7 @@
     const clock = el('span', { class: 'typing' }, 'Thinking… 0s');
     const wait = bubble('bot', clock, el('button', { class: 'btn ghost sm', type: 'button', style: 'margin-left:8px', onclick: () => ctl.abort() }, 'Cancel'));
     const tick = setInterval(() => { clock.textContent = `Thinking… ${Math.round((Date.now() - t0) / 1000)}s`; }, 1000);
-    let notice = '';
+    let notice = '', modelUsed = '';
     try {
       let hits = [];
       try {
@@ -297,15 +297,20 @@
           const top = found.length ? found[0].score : 0;
           // keep passages that share at least two of the question's words (one, for very short questions) and are not far weaker than the best
           hits = found.filter(h => h.matched >= Math.min(2, h.terms) && h.score >= 0.4 * top);
+          // passages from the same page become one, so no slot is wasted on a repeat
+          const byPage = new Map();
+          hits.forEach(h => { const k = h.book.id + ':' + h.page, g = byPage.get(k); if (g) { g.text += '\n…\n' + h.text; g.score = Math.max(g.score, h.score); } else byPage.set(k, Object.assign({}, h)); });
+          hits = [...byPage.values()].sort((a, b) => b.score - a.score);
           let used = 0; hits = hits.filter(h => (used += h.text.length) <= 6500);
         }
       } catch (e) { hits = []; }   // the Library is optional: never block the chat
-      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { compactSystem: systemPrompt(hits, true), onNotice: m => { notice = m; }, signal: ctl.signal, timeoutMs: 45000 });
+      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { compactSystem: systemPrompt(hits, true), onModel: m => { modelUsed = m; }, onNotice: m => { notice = m; }, signal: ctl.signal, timeoutMs: 45000 });
       const reply = String(out.reply || '').trim() || 'Okay.';
       const res = resolve(Array.isArray(out.actions) ? out.actions : []);
       history.push({ role: 'model', text: reply + (res.items.length ? ' [proposed: ' + res.items.map(i => i.text).join('; ') + ']' : '') });
       wait.replaceChildren(rich(reply));
       if (notice) wait.append(el('div', { class: 'p-note' }, notice));
+      if (modelUsed && !notice) wait.append(el('div', { class: 'p-note' }, 'Answered by ' + modelUsed));
       if (hits.length) wait.append(sources(hits));
       if (res.items.length || res.notes.length) wait.append(proposal(res, text));
     } catch (e) {

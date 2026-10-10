@@ -30,6 +30,8 @@
   const HEAD_B = /^\s*[A-Z][A-Z0-9 &,'-]{4,}?\s+(\d{1,2}\.\d{1,3})\s*$/;            // "ADVANCED ACCOUNTING   2.7"
   const SECTION = /^\s*(\d{1,2}(?:\.\d{1,2})*\.?)\s+([A-Z][A-Z0-9 ,&'()\/–-]{7,})\s*$/;  // "4.  STATUS OF ACCOUNTING STANDARDS"
   const norm = l => l.replace(/\s+/g, ' ').trim();
+  // the ICAI PDFs draw the rupee sign with a font that extracts as a backtick: put the real sign back
+  const fixText = t => String(t || '').replace(/`\s?(?=\d)/g, '₹ ');
 
   const SMALL = new Set(['of', 'to', 'and', 'for', 'the', 'in', 'on', 'a', 'an', 'as', 'at', 'by']);
   const titleCase = t => t.toLowerCase().split(' ').map((w, i) => (i && SMALL.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -176,7 +178,7 @@
       tk.forEach(w => tf.set(w, (tf.get(w) || 0) + 1));
       tf.forEach((_, w) => df.set(w, (df.get(w) || 0) + 1));
       total += tk.length;
-      return { book: books.get(c.bookId), page: c.page, label: c.label || '', heading: c.heading || '', text: c.text, tf, len: tk.length };
+      return { book: books.get(c.bookId), page: c.page, label: c.label || '', heading: c.heading || '', text: fixText(c.text), tf, len: tk.length };
     });
     index = { docs, df, avg: docs.length ? total / docs.length : 1, books };
     return index;
@@ -237,7 +239,7 @@
   async function getFile(id) { const db = await open(); return wrap(db.transaction('files').objectStore('files').get(id)); }
   async function chunksOfBook(id) { const db = await open(); return wrap(db.transaction('chunks').objectStore('chunks').index('bookId').getAll(IDBKeyRange.only(id))); }
   /** Text of one PDF page (as stored: header/footer removed). */
-  async function pageText(id, page) { return (await chunksOfBook(id)).filter(c => c.page === page).map(c => c.text).join('\n'); }
+  async function pageText(id, page) { return fixText((await chunksOfBook(id)).filter(c => c.page === page).map(c => c.text).join('\n')); }
   /** Section headings of a book with the page each starts on, for a contents list. */
   async function outline(id) {
     const seen = new Set(), out = [];
