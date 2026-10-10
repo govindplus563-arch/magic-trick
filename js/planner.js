@@ -395,9 +395,10 @@
 
   window.Planner = {
     util: { splitLine, parseDate },
-    open() {
+    /** prefill: optional planner text (e.g. a file attached in the chat) to load straight into the preview. */
+    open(prefill) {
       if (!dlg) build();
-      ta.value = ''; dlg.querySelector('input[type=file]').value = '';
+      ta.value = typeof prefill === 'string' ? prefill : ''; dlg.querySelector('input[type=file]').value = '';
       clearSample.checked = true; pastSel.value = 'missed'; undSel.value = 'prev';
       aiStatus.hidden = true; refreshAI();
       preview();
