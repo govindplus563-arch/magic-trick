@@ -109,7 +109,8 @@
     }
 
     root.append(el('div', { class: 'home-actions' },
-      el('button', { class: 'btn outline', onclick: () => App.openLectureDialog(t) }, '+ Add lecture')));
+      el('button', { class: 'btn outline', onclick: () => App.openLectureDialog(t) }, '+ Add lecture'),
+      el('button', { class: 'btn outline', onclick: () => Planner.open() }, 'Upload planner')));
 
     if (st.sampleActive) {
       root.append(el('div', { class: 'sample-note card' },

@@ -142,6 +142,16 @@
       save();
     },
 
+    addLectures(rows) {
+      rows.forEach(r => state.lectures.push({
+        id: uid(), date: r.date, subject: r.subject, chapter: r.chapter, lecture: String(r.lecture),
+        duration: r.duration, done: false, doneOn: null
+      }));
+      const dates = state.lectures.map(x => x.date).sort();
+      if (dates.length && (!state.planStart || dates[0] < state.planStart)) state.planStart = dates[0];
+      save();
+    },
+
     toggleLecture(id) {
       const l = state.lectures.find(x => x.id === id);
       if (!l) return null;
