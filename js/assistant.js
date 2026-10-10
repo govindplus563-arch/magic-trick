@@ -309,7 +309,7 @@
       form,
       el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Your message, an outline of your plan (subjects, chapters, dates, progress) and any file you attach are sent to Google Gemini. Nothing changes until you press Apply.'));
     document.body.append(dlg);
-    bubble('bot', "Hi! Tell me what to change in your plan, for example “I'm 3 days behind, push everything after today by 3 days” or “move the exam to 20 Nov”. I can also explain any topic: ask “explain AS 14 amalgamation simply” or “quiz me on GST input tax credit”. For plan changes I'll show you the changes first and only apply them when you say so.");
+    bubble('bot', "Hi! Ask me to change your plan (“push everything after today by 3 days”, “move the exam to 20 Nov”) or to explain any topic (“explain AS 14 simply”). I show changes first and only apply them when you say so.");
   }
 
   /** Open the chat and send a question straight away (used by the "explain" buttons on lecture cards). */
