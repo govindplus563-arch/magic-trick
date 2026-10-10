@@ -1,0 +1,52 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/youthful-heisenberg-01bdwf, main]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Copy the web app into www/
+        run: node scripts/build-www.js
+
+      - name: Create the Android project
+        run: npx cap add android
+
+      - name: App icons
+        run: |
+          pip install pillow
+          python3 scripts/android-icons.py android
+
+      - name: Sync web files into the Android project
+        run: npx cap sync android
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Build the debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: study-planner-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

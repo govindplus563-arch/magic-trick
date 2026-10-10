@@ -101,6 +101,12 @@
 
   document.getElementById('chatFab').addEventListener('click', () => Assistant.open());
 
+  // installable + works offline when served over https (not needed inside the Android app, which bundles the files)
+  if ('serviceWorker' in navigator && /^https:$|^http:$/.test(location.protocol) && !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform()) &&
+      (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* optional */ });
+  }
+
   Store.init();
   render();
 })();

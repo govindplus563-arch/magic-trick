@@ -113,11 +113,10 @@
       el('p', { class: 'hint' }, st.lastBackup ? `Last backup: ${days === 0 ? 'today' : days + ' day' + (days === 1 ? '' : 's') + ' ago'}.` : 'No backup yet.',
         stale ? ' Your data lives only in this browser, so export a copy now and then.' : ''),
       el('div', { class: 'backup-btns' },
-        el('button', { class: 'btn primary sm', onclick: () => {
-          const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
-          const a = el('a', { href: URL.createObjectURL(blob), download: `study-planner-${D.today()}.json` });
-          document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-          App.toast('Backup downloaded.'); App.render();
+        el('button', { class: 'btn primary sm', onclick: async () => {
+          try { await Files.save(`study-planner-${D.today()}.json`, 'application/json', Store.exportJSON()); }
+          catch (e) { if (e && /cancel/i.test(String(e.message || e))) return; App.toast('Could not save the backup: ' + (e.message || e), 'err'); return; }
+          App.toast(Files.isNative() ? 'Choose where to save your backup.' : 'Backup downloaded.'); App.render();
         } }, 'Export backup'),
         el('button', { class: 'btn outline sm', onclick: () => fileIn.click() }, 'Import backup'),
         el('button', { class: 'btn danger sm', onclick: () => {

@@ -279,8 +279,7 @@
     saveBtn = el('button', { class: 'btn primary', type: 'button', disabled: true, onclick: save }, 'Save');
     const tpl = el('a', { href: '#', class: 'link', onclick: e => {
       e.preventDefault();
-      const a = el('a', { href: URL.createObjectURL(new Blob([TEMPLATE], { type: 'text/csv' })), download: 'planner-template.csv' });
-      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      Files.save('planner-template.csv', 'text/csv', TEMPLATE).catch(() => {});
     } }, 'Download CSV template');
     dlg.append(
       el('h2', {}, 'Upload planner'),

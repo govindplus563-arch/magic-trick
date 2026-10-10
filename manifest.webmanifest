@@ -1,0 +1,16 @@
+{
+  "name": "CA Inter Study Planner",
+  "short_name": "Study Planner",
+  "description": "Plan lectures, revisions, tests and backlog for CA Inter.",
+  "start_url": "./index.html#home",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1f1f9",
+  "theme_color": "#3b3a86",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
