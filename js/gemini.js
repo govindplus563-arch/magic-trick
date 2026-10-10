@@ -37,6 +37,7 @@
             el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'ping' }, '⚡ Test speed'),
             el('button', { type: 'button', class: 'btn ghost sm', 'data-act': 'pingbig' }, 'Test with a typical chat size')),
           el('div', { class: 'ping-out', 'data-role': 'ping', hidden: true }),
+          el('div', { class: 'rec-box', 'data-role': 'rec', hidden: true }),
           el('input', { type: 'search', class: 'ml-filter', placeholder: 'Filter the model list (e.g. gemma)', 'aria-label': 'Filter models', hidden: true }),
           el('div', { class: 'model-list', 'data-role': 'models', hidden: true }),
           el('datalist', { id: 'geminiModels' }),
@@ -67,25 +68,30 @@
         found.textContent = 'Asking Google…';
         try {
           const all = await listModelsFull(k);
-          const names = all.filter(m => m.text).map(m => m.name);
+          const names = all.filter(m => m.chat).map(m => m.name);
           f.querySelector('#geminiModels').replaceChildren(...names.map(n => el('option', { value: n })));
-          const best = pickBest(names), bk = pickBackup(names);
-          if (best && !names.includes(f.elements.model.value.trim()) && f.elements.model.value.trim() !== DEFAULT_MODEL) f.elements.model.value = best;
-          if (bk && !f.elements.backupModel.value.trim()) f.elements.backupModel.value = bk;
+          const recMain = pickMain(names), recBackup = pickBackup(names);
+          const curMain = f.elements.model.value.trim();
+          if (recMain && (!names.includes(curMain) && curMain !== DEFAULT_MODEL)) f.elements.model.value = recMain;   // a saved voice/image model is replaced
+          if (recBackup && !f.elements.backupModel.value.trim()) f.elements.backupModel.value = recBackup;
           const box = f.querySelector('[data-role=models]'), filt = f.querySelector('.ml-filter');
           let showAll = false;
           const draw = () => {
             const q = filt.value.trim().toLowerCase();
-            const rows = all.filter(m => (showAll || m.text) && (!q || (m.name + ' ' + m.display).toLowerCase().includes(q)));
-            box.replaceChildren(...rows.map(m => el('div', { class: 'ml-row' + (m.text ? '' : ' off') },
-              el('div', { class: 'ml-name' }, m.display ? `${m.display}` : m.name, el('small', {}, m.display ? m.name : ''), /gemma/i.test(m.name) ? el('span', { class: 'ml-tag' }, 'high daily limit') : null, m.text ? null : el('span', { class: 'ml-tag' }, 'not for chat')),
-              m.text ? el('div', { class: 'ml-btns' },
+            const rows = all.filter(m => (showAll || m.chat) && (!q || (m.name + ' ' + m.display).toLowerCase().includes(q)));
+            box.replaceChildren(...rows.map(m => el('div', { class: 'ml-row' + (m.chat ? '' : ' off') },
+              el('div', { class: 'ml-name' }, m.display ? `${m.display}` : m.name, el('small', {}, m.display ? m.name : ''), /gemma/i.test(m.name) ? el('span', { class: 'ml-tag' }, 'high daily limit') : null, m.chat ? null : el('span', { class: 'ml-tag' }, 'not for chat')),
+              m.chat ? el('div', { class: 'ml-btns' },
                 el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.model.value = m.name; } }, 'Main'),
                 el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.backupModel.value = m.name; } }, 'Backup')) : null)),
-              el('button', { type: 'button', class: 'linkbtn', style: 'color:var(--indigo)', onclick: () => { showAll = !showAll; draw(); } }, showAll ? 'Hide models that cannot chat' : `Show all ${all.length} (including ${all.length - names.length} that cannot chat)`));
+              el('button', { type: 'button', class: 'linkbtn', style: 'color:var(--indigo)', onclick: () => { showAll = !showAll; draw(); } }, showAll ? 'Hide models that cannot chat' : `Show all ${all.length} (including ${all.length - names.length} voice, image, video and other models that cannot chat)`));
           };
           filt.hidden = false; box.hidden = false; filt.oninput = draw; draw();
-          found.textContent = names.length ? `${names.length} models can chat (of ${all.length}). Tap Main or Backup next to the one you want, then Save.` : 'No models available for this key.';
+          const rec = f.querySelector('[data-role=rec]');
+          rec.hidden = !names.length;
+          rec.replaceChildren(el('div', {}, `Recommended: Main ${recMain || '-'} (fast), Backup ${recBackup || '-'} (high daily limit).`),
+            el('button', { type: 'button', class: 'btn primary sm', onclick: () => { if (recMain) f.elements.model.value = recMain; if (recBackup) f.elements.backupModel.value = recBackup; } }, 'Use recommended'));
+          found.textContent = names.length ? `${names.length} chat models found (${all.length - names.length} voice / image / other models hidden). Pick Main and Backup, then Save.` : 'No chat models available for this key.';
         } catch (e) { found.textContent = e.message; }
       };
       const runPing = async big => {
@@ -99,13 +105,16 @@
       };
       f.querySelector('[data-act=ping]').onclick = () => runPing(false);
       f.querySelector('[data-act=pingbig]').onclick = () => runPing(true);
-      f.querySelector('[data-act=forget]').onclick = () => { update({ key: '' }); f.elements.key.value = ''; };
+      f.querySelector('[data-act=forget]').onclick = () => { if (confirm('Remove your Gemini API key from this device?')) { update({ key: '' }); f.elements.key.value = ''; } };
       dlg.showModal();
     });
   }
 
   /** Models this key can call for generateContent, e.g. ['gemini-3.5-flash', ...]. */
-  /** Every model the key can see: [{ name, display, text }] where text = can answer prompts (generateContent). */
+  // voice, image, video, music, embedding and agent models accept requests but are not chat models
+  const NOCHAT = /(tts|image|imagen|veo|lyria|live|audio|embed|transcrib|robotics|computer-use|antigravity|deep-research|aqa|learnlm|banana|music|translate|customtools|-exp-)/i;
+
+  /** Every model the key can see: [{ name, display, text, chat }]. text = accepts prompts; chat = a normal text chat model. */
   async function listModelsFull(key, signal) {
     const out = []; let token = '';
     for (let page = 0; page < 10; page++) {
@@ -117,13 +126,13 @@
         throw new Error(res.status === 400 || res.status === 403 ? 'Gemini rejected the API key. Check it in AI settings.' : `Could not list models (error ${res.status}). ${m}`.trim());
       }
       const j = await res.json();
-      (j.models || []).forEach(m => out.push({ name: String(m.name).replace(/^models\//, ''), display: m.displayName || '', text: (m.supportedGenerationMethods || []).includes('generateContent') }));
+      (j.models || []).forEach(m => out.push({ name: String(m.name).replace(/^models\//, ''), display: m.displayName || '', text: (m.supportedGenerationMethods || []).includes('generateContent'), chat: (m.supportedGenerationMethods || []).includes('generateContent') && !NOCHAT.test(String(m.name) + ' ' + (m.displayName || '')) }));
       token = j.nextPageToken || ''; if (!token) break;
     }
     return out;
   }
   /** Names of the models that can answer prompts. */
-  async function listModels(key, signal) { return (await listModelsFull(key, signal)).filter(m => m.text).map(m => m.name); }
+  async function listModels(key, signal) { return (await listModelsFull(key, signal)).filter(m => m.chat).map(m => m.name); }
 
   /** Best general-purpose Flash model: stable before preview, then highest version, no lite/image/audio variants. */
   function pickBest(names) {
@@ -133,9 +142,16 @@
     return ok[0] || names.find(n => /^gemini-/.test(n) && !/embed|image|tts|live|audio/.test(n)) || null;
   }
 
-  /** A backup with generous free limits: the largest Gemma, else a Flash-Lite. */
+  /** Fast main model for chat: the newest stable Flash-Lite, else the best Flash. */
+  function pickMain(names) {
+    const ver = n => parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    const lite = names.filter(n => /flash-lite/i.test(n) && !/preview/i.test(n) && !NOCHAT.test(n)).sort((a, b) => ver(b) - ver(a));
+    return lite[0] || pickBest(names);
+  }
+
+  /** A backup with generous free limits: a Gemma (the fast "A4B" one if there is one), else a Flash-Lite. */
   function pickBackup(names) {
-    const gem = names.filter(n => /^gemma/i.test(n) && !/embed|vision-only/i.test(n)).sort((a, b) => (parseFloat((b.match(/(\d+)b/i) || [0, 0])[1]) - parseFloat((a.match(/(\d+)b/i) || [0, 0])[1])) || b.localeCompare(a));
+    const gem = names.filter(n => /^gemma/i.test(n) && !NOCHAT.test(n)).sort((a, b) => (/a\d+b/i.test(b) - /a\d+b/i.test(a)) || (parseFloat((b.match(/(\d+)b/i) || [0, 0])[1]) - parseFloat((a.match(/(\d+)b/i) || [0, 0])[1])) || b.localeCompare(a));
     return gem[0] || names.find(n => /flash-lite/i.test(n) && !/preview|image|tts|live|audio/i.test(n)) || '';
   }
 
@@ -232,15 +248,41 @@
     return { contents, generationConfig: { temperature: (body.generationConfig || {}).temperature } };
   }
 
-  /** JSON from a model answer, even if it wrapped it in ```json fences or added a sentence around it. */
-  function parseLoose(text) {
-    try { return JSON.parse(text); } catch (e) { /* try to find it */ }
-    const t = String(text).replace(/```(?:json)?/gi, '');
-    const o = t.indexOf('{'), a = t.indexOf('[');
-    const start = o < 0 ? a : a < 0 ? o : Math.min(o, a);
-    const end = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
-    if (start >= 0 && end > start) return JSON.parse(t.slice(start, end + 1));
-    throw new Error('no json');
+  function matchEnd(t, i) {
+    let depth = 0, inStr = false, esc = false;
+    for (let k = i; k < t.length; k++) {
+      const ch = t[k];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') depth++; else if (ch === '}' || ch === ']') { depth--; if (depth === 0) return k; }
+    }
+    return -1;
+  }
+  /** Every valid JSON object/array hidden in a text answer (models add sentences, ```fences```, or think out loud first). */
+  function jsonCandidates(text) {
+    const t = String(text).replace(/```(?:json)?/gi, ''), out = [];
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] !== '{' && t[i] !== '[') continue;
+      const end = matchEnd(t, i);
+      if (end < 0) continue;
+      try { out.push(JSON.parse(t.slice(i, end + 1))); i = end; } catch (e) { /* not JSON, keep scanning inside it */ }
+    }
+    return out;
+  }
+  /** expect 'chat': an object with "reply" (plain prose is accepted as the reply). expect 'array': a list of lecture rows. */
+  function parseAnswer(text, expect) {
+    const all = [];
+    try { all.push(JSON.parse(text)); } catch (e) { /* look inside */ }
+    all.push(...jsonCandidates(text));
+    if (expect === 'array') {
+      const arr = all.filter(x => Array.isArray(x) && x.length && typeof x[0] === 'object').sort((a, b) => b.length - a.length)[0] || all.find(Array.isArray);
+      if (arr) return arr;
+      throw new Error('no list');
+    }
+    const obj = all.filter(x => x && typeof x === 'object' && !Array.isArray(x) && typeof x.reply === 'string').pop();
+    if (obj) return obj;
+    const plain = String(text).replace(/```(?:json)?/gi, '').trim();
+    if (plain) return { reply: plain, actions: [] };
+    throw new Error('empty');
   }
 
   /** Answers fastest: asks the model not to "think" first. Models that insist on thinking get the plain request. */
@@ -260,36 +302,40 @@
     catch (e) { if (e.code === 'NEEDS_COMPAT' && !small) return generate(s, compat(opts.compactBody || body), opts.signal, opts.timeoutMs, noRetry); throw e; }
   }
 
-  const why = e => e.code === 'TIMEOUT' ? 'did not answer in time' : e.code === 'RATE_LIMIT' ? 'is rate-limited' : (e.message || 'failed');
+  const why = e => e.code === 'TIMEOUT' ? 'did not answer in time' : e.code === 'RATE_LIMIT' ? 'is rate-limited' : e.code === 'MODEL_NOT_FOUND' ? 'was not found' : (String(e.message || 'failed').replace(/\s+/g, ' ').slice(0, 120));
+  const isAuth = e => /API key|refused the request|Add your Gemini/i.test(e.message || '');
 
-  /** The main model; when it is rate-limited or too slow, the backup model (if one is set). Returns parsed JSON. */
+  /** The main model; if it fails for any reason except a bad key or Cancel, the backup model (if one is set). Returns parsed JSON. */
   async function runJSON(body, opts) {
     const s = settings();
     if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
     const backup = s.backupModel && s.backupModel !== s.model ? s.backupModel : '';
     // with a backup ready, do not wait long for the main model: chat questions give it 20 s
     const mainOpts = backup && (opts.timeoutMs || 45000) <= 60000 ? Object.assign({}, opts, { timeoutMs: Math.min(opts.timeoutMs || 45000, 20000) }) : opts;
-    let text;
-    try { text = await attempt(s.model, body, mainOpts, !!backup); }
+    let text, used = s.model;
+    const read = () => { try { return parseAnswer(text, opts.expect || 'chat'); } catch (e) { const er = new Error(`${used} sent an answer that could not be read.`); er.code = 'UNREADABLE'; throw er; } };
+    try { text = await attempt(s.model, body, mainOpts, !!backup); return read(); }
     catch (e) {
-      if (backup && (e.code === 'RATE_LIMIT' || e.code === 'TIMEOUT')) {
-        if (opts.onNotice) opts.onNotice(`${s.model} ${why(e)}, so ${backup} answered.`);
-        try { text = await attempt(backup, body, opts, false); }
-        catch (e2) { throw new Error(`${s.model} ${why(e)}, and ${backup} ${why(e2)}. Open AI settings → Test speed to see which model is working.`); }
-      } else if (e.code === 'MODEL_NOT_FOUND') {
+      if (e.name === 'AbortError' || isAuth(e)) throw e;
+      if (e.code === 'MODEL_NOT_FOUND' && !backup) {
         const best = pickBest(await listModels(s.key, opts.signal));
         if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
         if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
-        update({ model: best });
-        text = await attempt(best, body, opts, false);
-      } else throw e;
+        update({ model: best }); used = best;
+        text = await attempt(best, body, opts, false); return read();
+      }
+      if (!backup) throw e;
+      if (opts.onNotice) opts.onNotice(`${s.model} ${why(e)}, so ${backup} answered.`);
+      used = backup;
+      try { text = await attempt(backup, body, opts, false); return read(); }
+      catch (e2) { if (e2.name === 'AbortError') throw e2; throw new Error(`${s.model} ${why(e)}; ${backup} ${why(e2)}. Open AI settings → ⚡ Test speed to see which model works.`); }
     }
-    try { return parseLoose(text); } catch (e) { throw new Error('The model sent an answer that could not be understood. Try again.'); }
   }
 
   /** Times one tiny request per model so you can see which one is fast, slow, rate-limited or missing. */
   async function ping(model, big) {
     const s = settings();
+    if (NOCHAT.test(model)) return { ok: false, text: `❌ ${model}: this is a voice / image / video / special model, not a chat model. Pick a Flash, Flash-Lite or Gemma model instead.` };
     const filler = big ? ('Study notes about accounting standards, capital maintenance and financial statements. ').repeat(190) + '\n\n' : '';
     const body = { contents: [{ role: 'user', parts: [{ text: filler + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 16 } };
     if (!/gemma/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -322,8 +368,8 @@
       const arr = await runJSON({
         contents: [{ role: 'user', parts: [{ text: prompt(chunks[i], prev, i, chunks.length, extra) }] }],
         generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA }
-      }, Object.assign({ timeoutMs: 120000 }, opts));
-      if (!Array.isArray(arr)) throw new Error('Gemini sent an answer that could not be understood. Try again.');
+      }, Object.assign({ timeoutMs: 120000, expect: 'array' }, opts));
+      if (!Array.isArray(arr)) throw new Error('The model sent an answer that could not be read. Try again.');
       arr.forEach(r => {
         out.push([tidy(r.date), tidy(r.subject), tidy(r.chapter), tidy(r.lecture),
           r.duration_min > 0 ? r.duration_min : (opts.defaultDuration || 90), r.of > 0 ? r.of : ''].join('\t'));
@@ -342,8 +388,8 @@
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema }
     });
     // models with a small per-minute token budget (Gemma) get a shorter prompt
-    return runJSON(mk(system), Object.assign({}, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
+    return runJSON(mk(system), Object.assign({ expect: 'chat' }, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
+  window.Gemini = { pickMain, ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
 })();

@@ -46,7 +46,7 @@
     else root.append(el('div', { class: 'card empty' }, el('strong', {}, (TABS.find(t => t.id === tab) || {}).label),
       el('br'), `Coming in ${PENDING[tab]}.`));
     if (Store.saveFailed) root.prepend(el('div', { class: 'warn' }, 'Your browser is blocking storage, so changes will be lost when you close this page. Use Export backup often, or turn off private browsing.'));
-    document.getElementById('chatFab').hidden = false;
+    const fab = document.getElementById('chatFab'); fab.hidden = false; fab.classList.toggle('left', tab === 'book');
     renderNav();
     window.scrollTo(0, y); root.scrollTop = top;
   }
