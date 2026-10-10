@@ -90,7 +90,7 @@
           const rec = f.querySelector('[data-role=rec]');
           rec.hidden = !names.length;
           rec.replaceChildren(el('div', {}, `Recommended: Main ${recMain || '-'} (fast), Backup ${recBackup || '-'} (high daily limit).`),
-            el('button', { type: 'button', class: 'btn primary sm', onclick: () => { if (recMain) f.elements.model.value = recMain; if (recBackup) f.elements.backupModel.value = recBackup; } }, 'Use recommended'));
+            el('button', { type: 'button', class: 'btn primary sm', onclick: ev => { if (recMain) f.elements.model.value = recMain; if (recBackup) f.elements.backupModel.value = recBackup; const t = ev.target; t.textContent = '✓ Set. Now press Save'; setTimeout(() => { t.textContent = 'Use recommended'; }, 2500); } }, 'Use recommended'));
           found.textContent = names.length ? `${names.length} chat models found (${all.length - names.length} voice / image / other models hidden). Pick Main and Backup, then Save.` : 'No chat models available for this key.';
         } catch (e) { found.textContent = e.message; }
       };
@@ -217,7 +217,7 @@
       } finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', relay); }
       if (res.ok) {
         const cand = j.candidates && j.candidates[0];
-        const part = cand && cand.content && cand.content.parts && cand.content.parts.map(p => p.text || '').join('');
+        const part = cand && cand.content && cand.content.parts && cand.content.parts.filter(p => !p.thought).map(p => p.text || '').join('');
         if (!part) throw new Error(j.promptFeedback && j.promptFeedback.blockReason ? 'Gemini declined this request (' + j.promptFeedback.blockReason + ').' : 'Gemini returned no answer.');
         if (cand.finishReason === 'MAX_TOKENS') throw new Error('Gemini ran out of space for its answer. Try a smaller request.');
         return part;
@@ -225,7 +225,7 @@
       if (res.status === 429 && noRetry) { const re = new Error('Gemini rate limit reached.'); re.code = 'RATE_LIMIT'; throw re; }   // a backup model will answer instead
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(4000 * (attempt + 1), signal); continue; }
       if (res.status === 400 && /(instruction|json mode|response_mime_type|response ?schema|mime type)/i.test(msg) && !/api key/i.test(msg)) { const ce = new Error(msg); ce.code = 'NEEDS_COMPAT'; throw ce; }
-      if (res.status === 400 && /thinking/i.test(msg)) { const e = new Error(msg); e.code = 'BAD_THINKING'; throw e; }
+      if (res.status === 400 && !/api key/i.test(msg)) { const e = new Error(`Gemini error 400. ${msg}`.replace(/\.\s*$/, '')); e.code = 'BAD_ARG'; throw e; }
       if (res.status === 400 && /api key/i.test(msg)) throw new Error('Gemini rejected the API key. Check it in AI settings.');
       if (res.status === 401 || res.status === 403) throw new Error('Gemini refused the request (check the API key and that the Generative Language API is enabled). ' + msg);
       if (res.status === 404) { const e = new Error(`Model "${s.model}" was not found.`); e.code = 'MODEL_NOT_FOUND'; throw e; }
@@ -234,18 +234,21 @@
     }
   }
 
-  /** For models that cannot take a system prompt or JSON mode (e.g. Gemma): one plain prompt that asks for JSON text. */
-  function compat(body) {
+  /** For models that cannot take a system prompt or JSON mode (e.g. Gemma): one plain prompt.
+   *  chat: asks for normal prose (fast), plus an optional last line "ACTIONS: [...]". planner: asks for a JSON list. */
+  function compat(body, expect) {
     const sys = body.systemInstruction ? body.systemInstruction.parts.map(p => p.text).join('\n') : '';
     const schema = body.generationConfig && body.generationConfig.responseSchema;
     const contents = JSON.parse(JSON.stringify(body.contents));
     const first = contents.find(c => c.role === 'user') || contents[0];
-    const head = (sys ? sys + '\n\n=== CONVERSATION ===\n' : '') ;
-    const tail = schema ? '\n\nReply with ONLY valid JSON (no markdown, no code fences, no text before or after) that follows this schema:\n' + JSON.stringify(schema) : '';
+    const head = sys ? sys + '\n\n=== CONVERSATION ===\n' : '';
+    let tail = '';
+    if (expect === 'chat') tail = '\n\nAnswer in plain text (use "- " bullets and **bold** where helpful). Do NOT output JSON. Only if the student asked you to change their plan or to save something, add ONE final line that starts with ACTIONS: followed by a JSON array of action objects with the fields described above. Otherwise add no ACTIONS line.';
+    else if (schema) tail = '\n\nReply with ONLY valid JSON (no markdown, no code fences, no text before or after) that follows this schema:\n' + JSON.stringify(schema);
     first.parts = [{ text: head + first.parts.map(p => p.text).join('\n') }];
     const last = contents[contents.length - 1];
     last.parts = [{ text: last.parts.map(p => p.text).join('\n') + tail }];
-    return { contents, generationConfig: { temperature: (body.generationConfig || {}).temperature } };
+    return { contents, generationConfig: { temperature: (body.generationConfig || {}).temperature, maxOutputTokens: expect === 'chat' ? 1800 : 8192 } };
   }
 
   function matchEnd(t, i) {
@@ -280,17 +283,39 @@
     }
     const obj = all.filter(x => x && typeof x === 'object' && !Array.isArray(x) && typeof x.reply === 'string').pop();
     if (obj) return obj;
-    const plain = String(text).replace(/```(?:json)?/gi, '').trim();
-    if (plain) return { reply: plain, actions: [] };
+    let plain = String(text).replace(/```(?:json)?/gi, '').trim(), actions = [];
+    const m = plain.match(/(?:^|\n)\s*ACTIONS:\s*(\[[\s\S]*\])\s*$/);
+    if (m) { try { actions = JSON.parse(m[1]); plain = plain.slice(0, m.index).trim(); } catch (e) { /* keep the prose */ } }
+    if (plain) return { reply: plain, actions: Array.isArray(actions) ? actions : [] };
     throw new Error('empty');
   }
 
-  /** Answers fastest: asks the model not to "think" first. Models that insist on thinking get the plain request. */
+  const THINK_KEY = 'studyPlanner.aiThink';
+  const thinkMemory = () => { try { return JSON.parse(localStorage.getItem(THINK_KEY) || '{}'); } catch (e) { return {}; } };
+  const rememberThink = (model, v) => { try { const m = thinkMemory(); m[model] = v; localStorage.setItem(THINK_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } };
+  /** Gemini 2.5 takes thinkingBudget 0; Gemini 3.x takes thinkingLevel; anything that rejects both gets no thinking setting at all. */
+  function thinkVariants(model) {
+    const base = /gemma/i.test(model) ? ['none'] : /gemini-2\.5/i.test(model) ? ['budget', 'none'] : ['level', 'none'];
+    const known = thinkMemory()[model];
+    return known && base.includes(known) ? [known, ...base.filter(v => v !== known)] : base;
+  }
+  function withThinking(body, v) {
+    const out = JSON.parse(JSON.stringify(body));
+    out.generationConfig = Object.assign({}, out.generationConfig);
+    if (v === 'budget') out.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    else if (v === 'level') out.generationConfig.thinkingConfig = { thinkingLevel: 'minimal' };
+    else delete out.generationConfig.thinkingConfig;
+    return out;
+  }
+
+  /** Answers fastest: asks the model to think as little as it allows, falling back to the plain request if it refuses. */
   async function quick(s, body, opts, noRetry) {
-    const fast = JSON.parse(JSON.stringify(body));
-    fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
-    try { return await generate(s, fast, opts.signal, opts.timeoutMs, noRetry); }
-    catch (e) { if (e.code === 'BAD_THINKING') return generate(s, body, opts.signal, opts.timeoutMs, noRetry); throw e; }
+    let last;
+    for (const v of thinkVariants(s.model)) {
+      try { const t = await generate(s, withThinking(body, v), opts.signal, opts.timeoutMs, noRetry); rememberThink(s.model, v); return t; }
+      catch (e) { if (e.code === 'BAD_ARG' && v !== 'none') { last = e; continue; } throw e; }
+    }
+    throw last;
   }
 
   /** One model, with whatever tricks it needs. Gemma-style models go straight to the plain-prompt form and get the smaller prompt. */
@@ -298,8 +323,9 @@
     const s = Object.assign(settings(), { model });
     const small = /gemma/i.test(model);
     const b = small && opts.compactBody ? opts.compactBody : body;
-    try { return small ? await generate(s, compat(b), opts.signal, opts.timeoutMs, noRetry) : await quick(s, b, opts, noRetry); }
-    catch (e) { if (e.code === 'NEEDS_COMPAT' && !small) return generate(s, compat(opts.compactBody || body), opts.signal, opts.timeoutMs, noRetry); throw e; }
+    const lastResort = opts.lastResort ? Math.max(opts.timeoutMs || 45000, 60000) : opts.timeoutMs;
+    try { return small ? await generate(s, compat(b, opts.expect), opts.signal, lastResort, noRetry) : await quick(s, b, opts, noRetry); }
+    catch (e) { if (e.code === 'NEEDS_COMPAT' && !small) return generate(s, compat(opts.compactBody || body, opts.expect), opts.signal, lastResort, noRetry); throw e; }
   }
 
   const why = e => e.code === 'TIMEOUT' ? 'did not answer in time' : e.code === 'RATE_LIMIT' ? 'is rate-limited' : e.code === 'MODEL_NOT_FOUND' ? 'was not found' : (String(e.message || 'failed').replace(/\s+/g, ' ').slice(0, 120));
@@ -327,7 +353,7 @@
       if (!backup) throw e;
       if (opts.onNotice) opts.onNotice(`${s.model} ${why(e)}, so ${backup} answered.`);
       used = backup;
-      try { text = await attempt(backup, body, opts, false); return read(); }
+      try { text = await attempt(backup, body, Object.assign({}, opts, { lastResort: true }), false); return read(); }
       catch (e2) { if (e2.name === 'AbortError') throw e2; throw new Error(`${s.model} ${why(e)}; ${backup} ${why(e2)}. Open AI settings → ⚡ Test speed to see which model works.`); }
     }
   }
@@ -337,19 +363,24 @@
     const s = settings();
     if (NOCHAT.test(model)) return { ok: false, text: `❌ ${model}: this is a voice / image / video / special model, not a chat model. Pick a Flash, Flash-Lite or Gemma model instead.` };
     const filler = big ? ('Study notes about accounting standards, capital maintenance and financial statements. ').repeat(190) + '\n\n' : '';
-    const body = { contents: [{ role: 'user', parts: [{ text: filler + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 16 } };
-    if (!/gemma/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    const ctl = new AbortController(), t0 = Date.now(), timer = setTimeout(() => ctl.abort(), 30000);
-    try {
-      const res = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.key }, body: JSON.stringify(body), signal: ctl.signal });
-      const sec = ((Date.now() - t0) / 1000).toFixed(1);
-      if (res.ok) return { ok: true, text: `✅ ${model}: answered in ${sec} s${big ? ' (about ' + Math.round(filler.length / 4) + ' tokens sent)' : ''}` };
-      let m = ''; try { m = (await res.json()).error.message || ''; } catch (e) { /* ignore */ }
-      const kind = res.status === 429 ? 'rate limit / daily quota used up' : res.status === 404 ? 'model not found for this key' : res.status === 400 && /thinking/i.test(m) ? 'this model needs thinking on' : 'error ' + res.status;
-      return { ok: false, text: `❌ ${model}: ${kind} after ${sec} s. ${m.slice(0, 140)}` };
-    } catch (e) {
-      return { ok: false, text: ctl.signal.aborted ? `⏱️ ${model}: no answer after 30 s (too slow or stuck)` : `❌ ${model}: could not reach Google (${e.message || 'network'})` };
-    } finally { clearTimeout(timer); }
+    const base = { contents: [{ role: 'user', parts: [{ text: filler + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 64 } };
+    let lastMsg = '', lastStatus = 0, t0 = Date.now();
+    for (const v of thinkVariants(model)) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
+      t0 = Date.now();
+      try {
+        const res = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.key }, body: JSON.stringify(withThinking(base, v)), signal: ctl.signal });
+        const sec = ((Date.now() - t0) / 1000).toFixed(1);
+        if (res.ok) { rememberThink(model, v); return { ok: true, text: `✅ ${model}: answered in ${sec} s${big ? ' (about ' + Math.round(filler.length / 4) + ' tokens sent)' : ''}${v === 'level' ? ' · thinking: minimal' : v === 'budget' ? ' · thinking: off' : ''}` }; }
+        lastStatus = res.status; lastMsg = ''; try { lastMsg = (await res.json()).error.message || ''; } catch (e) { /* ignore */ }
+        if (res.status === 400 && v !== 'none') continue;             // try the next way of asking for little thinking
+        const kind = res.status === 429 ? 'rate limit / daily quota used up' : res.status === 404 ? 'model not found for this key' : 'error ' + res.status;
+        return { ok: false, text: `❌ ${model}: ${kind} after ${sec} s. ${lastMsg.slice(0, 140)}` };
+      } catch (e) {
+        return { ok: false, text: ctl.signal.aborted ? `⏱️ ${model}: no answer after 30 s (too slow or stuck)` : `❌ ${model}: could not reach Google (${e.message || 'network'})` };
+      } finally { clearTimeout(timer); }
+    }
+    return { ok: false, text: `❌ ${model}: error ${lastStatus} after ${((Date.now() - t0) / 1000).toFixed(1)} s. ${lastMsg.slice(0, 140)}` };
   }
 
   const tidy = v => String(v == null ? '' : v).replace(/[\t\r\n"]+/g, ' ').replace(/\s+/g, ' ').trim();

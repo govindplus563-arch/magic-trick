@@ -88,6 +88,7 @@
       const isTable = cells.length >= 3 && cells.filter(c => c.length >= 12).length >= 2;
       const line = isTable ? cells.join(' | ') : cells.join(' ');
       if (!line.trim()) return;
+      if (/^(ANSWERS?(\s*\/\s*HINTS)?|HINTS|ANSWERS? TO .{3,60}|TEST YOUR KNOWLEDGE|THEORETICAL QUESTIONS|PRACTICAL QUESTIONS|MULTIPLE CHOICE QUESTIONS|SELF[- ]?EXAMINATION|EXERCISES?)$/i.test(line)) { flush(); state.heading = titleCase(line); state.headingPage = pageNo; state.justSet = false; }
       const h = line.match(SECTION);
       if (h && line.length < 120) { flush(); state.heading = (h[1] + ' ' + h[2]).replace(/\s+/g, ' ').trim(); state.headingPage = pageNo; state.justSet = true; }
       else if (state.justSet && /^[A-Z][A-Z0-9 ,&'()\/–-]{2,60}$/.test(line)) state.heading += ' ' + line;   // long headings wrap onto a second line
