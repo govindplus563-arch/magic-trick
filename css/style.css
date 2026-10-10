@@ -374,3 +374,50 @@ select, input, textarea { color-scheme: inherit; }
 .settings-card h2 { font-size: 16px; margin-bottom: 4px; }
 .settings-card .hint { margin: 0 0 10px; }
 .backup-nudge { display: block; margin-top: 18px; padding: 10px 12px; border-radius: 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--text); font-size: 13px; text-decoration: none; }
+
+/* lecture / revision card actions (away from the tick box) */
+.lecture { cursor: default; }
+.lec-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.act { border: 1px solid var(--line); background: var(--card); color: var(--indigo); border-radius: 99px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; }
+.act:hover { background: var(--hover-bg); }
+.act.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--text); }
+.tick { position: relative; flex: none; width: 48px; height: 48px; margin: -6px -6px -6px 6px; display: grid; place-items: center; cursor: pointer; border-radius: 12px; }
+.tick:active { background: var(--hover-bg); }
+.rev-row { gap: 14px; }
+.rev-row > .btn { flex: none; align-self: center; min-width: 76px; padding: 10px 14px; }
+
+/* mistake book */
+.mb-link, .book-link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-top: 12px; text-decoration: none; color: var(--text); }
+.book-link { background: var(--card); border-radius: 14px; box-shadow: var(--shadow); margin: 0 0 12px; font-weight: 600; }
+.book-link .pend { margin-left: auto; }
+.book-link .chev { margin-left: auto; }
+.book-link .pend + .chev { margin-left: 6px; }
+.mb-ico { font-size: 24px; }
+.mb-link-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.mb-link-text span { font-size: 12.5px; color: var(--muted); }
+.chev { color: var(--muted); font-size: 22px; }
+.mb-stats { display: flex; gap: 8px; margin-bottom: 12px; }
+.mb-stats div { flex: 1; text-align: center; display: flex; flex-direction: column; }
+.mb-stats b { font-size: 24px; }
+.mb-stats span { font-size: 12px; color: var(--muted); }
+.mb-filters { display: flex; gap: 8px; margin: 14px 0 10px; }
+.mb-filters select, .mb-search { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--text); font: inherit; font-size: 14px; min-width: 0; }
+.mb-filters select { max-width: 45%; } .mb-search { flex: 1; }
+.mb-card { background: var(--card); border-radius: 14px; box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 10px; }
+.mb-card.mastered { opacity: .7; }
+.mb-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.mb-kind { color: var(--muted); font-weight: 600; }
+.mb-when { color: var(--muted); } .mb-when.due { color: var(--red); font-weight: 700; }
+.mb-where { font-size: 12.5px; color: var(--muted); margin: 6px 0 2px; overflow-wrap: anywhere; }
+.mb-text { font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mb-answer { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--teal-soft); overflow-wrap: anywhere; white-space: pre-wrap; font-size: 14px; }
+.mb-answer[hidden] { display: none; }
+.mb-answer.big { font-size: 16px; padding: 12px; }
+.mb-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.mb-actions .x { margin-left: auto; }
+.mb-list { max-height: 55vh; overflow-y: auto; }
+.rv-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.rv-q { font-size: 18px; font-weight: 700; margin: 8px 0 10px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.actions.center { justify-content: center; margin-top: 12px; }
+.red { color: var(--red); }
+.sheet select { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--text); font-size: 16px; }

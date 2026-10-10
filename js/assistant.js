@@ -18,7 +18,7 @@
         items: {
           type: 'OBJECT',
           properties: {
-            type: { type: 'STRING', enum: ['shift', 'move_to', 'spread', 'mark_done', 'mark_undone', 'set_duration', 'delete', 'set_exam_date', 'add_lecture', 'import_planner'] },
+            type: { type: 'STRING', enum: ['shift', 'move_to', 'spread', 'mark_done', 'mark_undone', 'set_duration', 'delete', 'set_exam_date', 'add_lecture', 'import_planner', 'add_mistake'] },
             subject: { type: 'STRING', nullable: true }, chapter: { type: 'STRING', nullable: true },
             from_date: { type: 'STRING', nullable: true }, to_date: { type: 'STRING', nullable: true },
             lecture_from: { type: 'INTEGER', nullable: true }, lecture_to: { type: 'INTEGER', nullable: true },
@@ -28,7 +28,8 @@
             per_day: { type: 'INTEGER', nullable: true },
             skip_weekdays: { type: 'ARRAY', items: { type: 'STRING' }, nullable: true },
             duration_min: { type: 'INTEGER', nullable: true },
-            lecture_no: { type: 'STRING', nullable: true }
+            lecture_no: { type: 'STRING', nullable: true },
+            mistake_text: { type: 'STRING', nullable: true }, mistake_answer: { type: 'STRING', nullable: true }
           },
           required: ['type']
         }
@@ -60,6 +61,10 @@
       L.push('', `MISSED LECTURES (${missed.length}, oldest first, max 40):`);
       missed.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 40).forEach(l => L.push(`  ${l.date} ${l.subject} | ${l.chapter} | ${Store.lecLabel(l)}`));
     }
+    const mb = st.mistakes || [], dueMb = Store.dueMistakes();
+    L.push('', `MISTAKE BOOK (${mb.length} saved, ${dueMb.length} due for review today; up to 25 shown, due first):`);
+    const shown = [...dueMb, ...mb.filter(m => !dueMb.includes(m))].slice(0, 25);
+    shown.forEach(m => L.push(`  ${m.subject} | ${m.chapter} | ${m.text.slice(0, 160)}${m.answer ? ' => ' + m.answer.slice(0, 160) : ''}`));
     const upto = D.add(t, 7);
     const next = lecs.filter(l => l.date >= t && l.date <= upto);
     L.push('', `SCHEDULE FOR THE NEXT 7 DAYS (${next.length} lectures, max 60 shown):`);
@@ -77,6 +82,7 @@
       '- Use the plan to know what they are studying: "today\'s lecture" or "this chapter" means the lectures listed for today / the next days in the outline.',
       '- For exact figures that change with amendments (tax rates, limits, section numbers, due dates), give them only if you are confident, and add a short reminder to confirm with the ICAI study material or the latest amendments. If you are not sure, say so instead of guessing.',
       'If the request is unclear, or could mean different things, ask ONE short question and return no actions.',
+      'The MISTAKE BOOK section lists what the student got wrong. Use it to quiz them (one question at a time, wait for their answer), to explain why they went wrong, or to answer "what should I revise before the test".',
       'If it is only a question about the plan (e.g. "what is due today?"), answer it from the plan below and return no actions.',
       'ACTIONS. Each action selects lectures with optional filters: subject, chapter (substring ok), from_date, to_date (inclusive, YYYY-MM-DD), lecture_from, lecture_to (lecture numbers inside a chapter), status (all | pending = not done | done | missed). Use subject and chapter names exactly as in the outline.',
       '- shift: move the selected lectures by shift_days (negative = earlier). To push a whole subject or the whole plan, select with from_date = the first date to move and no to_date.',
@@ -87,6 +93,7 @@
       '- delete: remove the selected lectures. Only when the student clearly asks to delete or drop them.',
       '- set_exam_date: date.',
       '- add_lecture: date, subject, chapter, lecture_no, duration_min.',
+      '- add_mistake: save something to the student\'s mistake book. Fields: subject, chapter (as in the outline if possible), mistake_text (the question or concept they got wrong), mistake_answer (the correct answer or memory trick, if known).',
       '- import_planner: only when a file is attached below and the student wants it loaded as their lecture planner. Return just this one action with no other fields. Never list the lectures of a file yourself.',
       "All actions are evaluated against the plan as it is NOW, not against each other's results, so do not chain actions on the same lectures.",
       'Dates must be real calendar dates in ISO format. Work out "tomorrow", "next Monday" etc. from today. Never schedule in the past.',
@@ -101,7 +108,7 @@
   function resolve(actions) {
     const st = Store.get(), t = D.today();
     const order = new Map(st.lectures.map((l, i) => [l.id, i]));
-    const edits = { moves: [], done: [], durations: [], deletes: [], adds: [], exam: null };
+    const edits = { moves: [], done: [], durations: [], deletes: [], adds: [], mistakes: [], exam: null };
     const items = [], notes = [];
     let openPlanner = false;
 
@@ -130,6 +137,11 @@
 
     (actions || []).forEach(a => {
       const type = a.type;
+      if (type === 'add_mistake') {
+        if (!a.mistake_text || !String(a.mistake_text).trim()) { notes.push('Skipped saving a mistake: there was no text.'); return; }
+        edits.mistakes.push({ subject: a.subject || '', chapter: a.chapter || '', text: a.mistake_text, answer: a.mistake_answer || '', kind: 'question' });
+        items.push({ text: `Save to your mistake book: ${String(a.mistake_text).slice(0, 90)}` }); return;
+      }
       if (type === 'import_planner') {
         if (!attached) notes.push('Skipped the planner import: no file is attached.');
         else { openPlanner = true; items.push({ text: `Open the planner upload with "${attached.name}" so you can check the rows before saving` }); }
@@ -183,7 +195,7 @@
         items.push({ text: `DELETE ${scope(sel)}`, danger: true, more: example(sel) });
       }
     });
-    const n = edits.moves.length + edits.done.length + edits.durations.length + edits.deletes.length + edits.adds.length + (edits.exam ? 1 : 0);
+    const n = edits.moves.length + edits.done.length + edits.durations.length + edits.deletes.length + edits.adds.length + edits.mistakes.length + (edits.exam ? 1 : 0);
     return { edits, items, notes, empty: n === 0, openPlanner };
   }
 

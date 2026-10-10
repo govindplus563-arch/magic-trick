@@ -79,17 +79,38 @@
     return wrap;
   }
 
+  /** Small buttons under a lecture / revision title. Kept away from the tick box so a tick never opens the chat by accident. */
+  function actionRow(subject, chapter, mode) {
+    const saved = Store.mistakesFor(subject, chapter);
+    const prompt = (mode === 'revise'
+      ? `Give me a quick revision note on "${chapter}" (${subject}) for CA Inter: key points to remember and one likely exam question.`
+      : `Explain "${chapter}" (${subject}) for CA Inter simply. I am about to study it.`) +
+      (saved.length ? `\nThings I got wrong in this chapter before, so cover them too:\n` + saved.slice(0, 5).map(m => '- ' + m.text).join('\n') : '');
+    return el('div', { class: 'lec-actions' },
+      el('button', { type: 'button', class: 'act', onclick: () => Assistant.ask(prompt) }, mode === 'revise' ? '✨ Note' : '✨ Explain'),
+      el('button', { type: 'button', class: 'act', onclick: () => MistakesView.openAdd({ subject, chapter }) }, '📕 Log mistake'),
+      saved.length ? el('button', { type: 'button', class: 'act warn', onclick: () => MistakesView.openChapter(subject, chapter) }, `📕 ${saved.length} saved`) : null);
+  }
+
   function lectureCard(l) {
-    const cb = el('input', { type: 'checkbox', checked: l.done, class: 'cb',
-      onchange: () => { Store.toggleLecture(l.id); App.render(); } });
     const title = `${l.subject} - ${l.chapter}`;
-    return el('label', { class: 'lecture' + (l.done ? ' done' : '') },
+    const cb = el('input', { type: 'checkbox', checked: l.done, class: 'cb', 'aria-label': (l.done ? 'Mark not done: ' : 'Mark done: ') + title,
+      onchange: () => { Store.toggleLecture(l.id); App.render(); } });
+    return el('div', { class: 'lecture' + (l.done ? ' done' : '') },
       el('div', { class: 'lec-text' },
         el('div', { class: 'lec-title' }, title),
-        el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}  ·  ${D.dur(l.duration)}`)),
-      el('button', { type: 'button', class: 'explain', title: 'Explain this topic', 'aria-label': 'Explain ' + title,
-        onclick: e => { e.preventDefault(); e.stopPropagation(); Assistant.ask(`Explain "${l.chapter}" (${l.subject}) simply. I am about to study it.`); } }, '✨'),
-      cb, el('span', { class: 'cbx', 'aria-hidden': 'true' }));
+        el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}  ·  ${D.dur(l.duration)}`),
+        actionRow(l.subject, l.chapter, 'learn')),
+      el('label', { class: 'tick' }, cb, el('span', { class: 'cbx', 'aria-hidden': 'true' })));
+  }
+
+  function mistakeCard(st) {
+    const due = Store.dueMistakes().length, total = st.mistakes.length;
+    return el('a', { class: 'mb-link card', href: '#mistakes' },
+      el('span', { class: 'mb-ico' }, '📕'),
+      el('span', { class: 'mb-link-text' }, el('strong', {}, 'Mistake book'),
+        el('span', {}, !total ? 'Save what you get wrong while revising' : due ? `${due} to review today` : `${total} saved · all caught up`)),
+      due ? el('span', { class: 'pend' }, String(due)) : el('span', { class: 'chev' }, '›'));
   }
 
   function render(root) {
@@ -114,6 +135,8 @@
       list.forEach(l => root.append(lectureCard(l)));
     }
 
+    root.append(mistakeCard(st));
+
     root.append(el('div', { class: 'home-actions' },
       el('button', { class: 'btn outline', onclick: () => App.openLectureDialog(t) }, '+ Add lecture')));
 
@@ -125,5 +148,5 @@
     }
   }
 
-  window.HomeView = { render, el };
+  window.HomeView = { render, el, actionRow };
 })();

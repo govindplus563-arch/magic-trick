@@ -1,6 +1,6 @@
 /* Revision tab: Today / Upcoming / Weekly + week strip. */
 (function () {
-  const { el } = HomeView;
+  const { el, actionRow } = HomeView;
   const { D } = Store;
   let sub = 'today', weekOff = 0, selDay = null;
 
@@ -24,9 +24,8 @@
       el('div', { class: 'rev-row' },
         el('div', { class: 'rev-text' },
           el('div', { class: 'lec-title' }, `${l.subject}: ${l.chapter}`),
-          el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}${n}`)),
-        el('button', { class: 'explain', type: 'button', title: 'Quick revision note', 'aria-label': 'Revision note for ' + l.chapter,
-          onclick: () => Assistant.ask(`Give me a quick revision note on "${l.chapter}" (${l.subject}): key points to remember and one likely exam question.`) }, '✨'),
+          el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}${n}`),
+          actionRow(l.subject, l.chapter, 'revise')),
         el('button', { class: 'btn sm ' + (r.done ? 'donebtn' : 'teal'),
           onclick: () => { Store.toggleRevision(r.id); App.render(); } }, r.done ? '✓ Done' : 'Done')));
   }
@@ -70,6 +69,8 @@
     const t = D.today();
     const all = Store.get().revisions.filter(r => !r.cleared && Store.lectureById(r.lectureId));
 
+    const dueMb = Store.dueMistakes().length;
+    root.append(el('a', { class: 'book-link', href: '#mistakes' }, '📕 Mistake book', dueMb ? el('span', { class: 'pend' }, `${dueMb} to review`) : null, el('span', { class: 'chev' }, '›')));
     root.append(el('div', { class: 'subtabs', role: 'tablist' },
       [['today', 'Today'], ['upcoming', 'Upcoming'], ['weekly', 'Weekly']].map(([id, label]) =>
         el('button', { class: 'subtab' + (sub === id && !selDay ? ' active' : ''), role: 'tab',

@@ -19,18 +19,18 @@
     { id: 'tests', label: 'Tests' }, { id: 'backlog', label: 'Backlog' }
   ];
   const PENDING = {};
-  const VIEWS = { settings: SettingsView, home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
+  const VIEWS = { settings: SettingsView, mistakes: MistakesView, home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
 
   let tab = 'home';
 
   function currentTab() {
     const h = location.hash.replace('#', '');
-    return h === 'settings' || TABS.some(t => t.id === h) ? h : 'home';
+    return h === 'settings' || h === 'mistakes' || TABS.some(t => t.id === h) ? h : 'home';
   }
 
   function renderNav() {
     const nav = document.getElementById('nav');
-    const cur = tab === 'settings' ? 'home' : tab;
+    const cur = tab === 'settings' ? 'home' : tab === 'mistakes' ? 'revision' : tab;
     nav.replaceChildren(...TABS.map(t => el('a', {
       href: '#' + t.id, class: 'nav-item' + (t.id === cur ? ' active' : ''), 'aria-current': t.id === cur ? 'page' : null
     }, ico(ICONS[t.id]), el('span', {}, t.label),

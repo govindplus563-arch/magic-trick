@@ -116,10 +116,18 @@
       .forEach(x => s.testSchedule.push({ id: uid(), name: x[0], subject: x[1], date: D.add(t, x[2]), sample: true }));
   }
 
+  function seedMistakes(s) {
+    const t = D.today();
+    [['Taxation', 'GST', 'Is ITC allowed on motor cars used for personal use? (blocked credit)', 'No. Section 17(5) blocks ITC on motor vehicles for personal use, with a few exceptions (e.g. supply of vehicles, transport of passengers).', 'concept', -2],
+     ['Adv Accounting', 'Partnership', 'Forgot to credit the old partners with goodwill in the sacrificing ratio.', 'Goodwill is shared by the sacrificing partners in their sacrificing ratio (old share - new share).', 'silly', -1],
+     ['Law', 'Companies Act', 'Minimum number of directors for a public company?', 'Three (private company: two; one person company: one).', 'question', 0]]
+      .forEach(x => s.mistakes.push({ id: uid(), subject: x[0], chapter: x[1], text: x[2], answer: x[3], kind: x[4], box: 0, due: D.add(t, x[5] + 1), created: D.add(t, x[5] - 1), reviews: 0, sample: true }));
+  }
+
   function fresh() {
     const t = D.today();
     const s = {
-      version: 3,
+      version: 4,
       examDate: D.add(t, 47),
       examName: 'CA Inter Exam',
       planStart: D.add(t, -14),
@@ -127,18 +135,19 @@
       lectures: sampleData(),
       revisions: [],
       tests: [],
-      testSchedule: []
+      testSchedule: [],
+      mistakes: []
     };
-    seedTests(s);
+    seedTests(s); seedMistakes(s);
     s.lectures.filter(l => l.done).forEach(l => addRevisionsFor(s, l, l.doneOn, true));
     return s;
   }
 
   function normalize(s) {
     const f = { version: 1, examDate: null, examName: 'CA Inter Exam', planStart: null,
-                sampleActive: false, lectures: [], revisions: [], tests: [], testSchedule: [], lastBackup: null };
+                sampleActive: false, lectures: [], revisions: [], tests: [], testSchedule: [], mistakes: [], lastBackup: null };
     s = Object.assign(f, s && typeof s === 'object' ? s : {});
-    ['lectures', 'revisions', 'tests', 'testSchedule'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
+    ['lectures', 'revisions', 'tests', 'testSchedule', 'mistakes'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
     if (s.examDate && !D.isValid(s.examDate)) s.examDate = null;
     return s;
   }
@@ -171,6 +180,10 @@
       if (state.version < 3) {
         if (state.sampleActive && !state.tests.length) seedTests(state);
         state.version = 3;
+      }
+      if (state.version < 4) {
+        if (state.sampleActive && !state.mistakes.length) seedMistakes(state);
+        state.version = 4;
       }
       save();
     },
@@ -271,6 +284,31 @@
       save();
     },
 
+    // ---- mistake book: things you got wrong, resurfaced on a 1 / 3 / 7 / 14 / 30 day schedule until you get them right ----
+    mistakeSteps: [1, 3, 7, 14, 30],
+    addMistake(m) {
+      state.mistakes.push({ id: uid(), subject: (m.subject || '').trim(), chapter: (m.chapter || '').trim(), text: m.text.trim(), answer: (m.answer || '').trim(),
+        kind: m.kind || 'question', box: 0, due: D.add(D.today(), 1), created: D.today(), reviews: 0 });
+      save();
+    },
+    updateMistake(id, patch) { const m = state.mistakes.find(x => x.id === id); if (m) { Object.assign(m, patch); save(); } },
+    deleteMistake(id) { state.mistakes = state.mistakes.filter(x => x.id !== id); save(); },
+    mistakesFor(subject, chapter) {
+      const s = String(subject || '').toLowerCase(), c = String(chapter || '').toLowerCase();
+      return state.mistakes.filter(m => m.subject.toLowerCase() === s && m.chapter.toLowerCase() === c);
+    },
+    isMastered(m) { return m.box >= Store.mistakeSteps.length; },
+    dueMistakes() { const t = D.today(); return state.mistakes.filter(m => !Store.isMastered(m) && m.due <= t).sort((a, b) => a.due.localeCompare(b.due)); },
+    /** gotIt: moves it to the next, longer interval. Not yet: it comes back tomorrow, from the start. */
+    reviewMistake(id, gotIt) {
+      const m = state.mistakes.find(x => x.id === id); if (!m) return;
+      m.reviews = (m.reviews || 0) + 1;
+      m.box = gotIt ? m.box + 1 : 0;
+      m.due = D.add(D.today(), gotIt ? (Store.mistakeSteps[m.box] || 30) : 1);
+      m.lastReviewed = D.today();
+      save();
+    },
+
     // ---- backup ----
     exportJSON() {
       state.lastBackup = new Date().toISOString();
@@ -294,15 +332,17 @@
       s.revisions = keep(d.revisions, r => str(r.id) && ids.has(r.lectureId) && D.isValid(r.due) && str(r.kind));
       s.tests = keep(d.tests, t => str(t.id) && str(t.name) && D.isValid(t.date) && +t.total > 0 && +t.obtained >= 0 && +t.obtained <= +t.total);
       s.testSchedule = keep(d.testSchedule, t => str(t.id) && str(t.name) && D.isValid(t.date));
+      s.mistakes = keep(d.mistakes, m => str(m.id) && str(m.text));
+      s.mistakes.forEach(m => { m.subject = String(m.subject || ''); m.chapter = String(m.chapter || ''); m.answer = String(m.answer || ''); m.box = Math.max(0, Math.min(5, +m.box || 0)); m.due = D.isValid(m.due) ? m.due : D.today(); m.created = D.isValid(m.created) ? m.created : D.today(); m.reviews = +m.reviews || 0; });
       if (!s.lectures.length && !s.tests.length) return { ok: false, error: 'The backup has no lectures or tests in it.' };
-      s.version = 3;
+      s.version = 4;
       state = s;
       save();
       return { ok: true, dropped, counts: { lectures: s.lectures.length, revisions: s.revisions.length, tests: s.tests.length } };
     },
 
     eraseAll() {
-      state = normalize({ version: 3, examDate: state.examDate, examName: state.examName });
+      state = normalize({ version: 4, examDate: state.examDate, examName: state.examName });
       save();
     },
 
@@ -344,6 +384,7 @@
         state.revisions = state.revisions.filter(r => !gone.has(r.lectureId));
       }
       (edits.adds || []).forEach(a => Store.addLecture(a));
+      (edits.mistakes || []).forEach(m => Store.addMistake(m));
       if (edits.exam && D.isValid(edits.exam)) Store.setExamDate(edits.exam);
       const dates = state.lectures.map(l => l.date).sort();
       if (dates.length && (!state.planStart || dates[0] < state.planStart)) state.planStart = dates[0];
@@ -399,6 +440,7 @@
       state.revisions = state.revisions.filter(x => !x.sample);
       state.tests = state.tests.filter(x => !x.sample);
       state.testSchedule = state.testSchedule.filter(x => !x.sample);
+      state.mistakes = state.mistakes.filter(x => !x.sample);
       state.sampleActive = false;
       state.planStart = state.lectures.length ? state.lectures.map(x => x.date).sort()[0] : D.today();
       save();
