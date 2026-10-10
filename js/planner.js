@@ -87,17 +87,14 @@
   function parse(text, existing) {
     const rows = [], errors = [];
     const seen = new Set((existing || []).map(key));
-    let dupes = 0, headerDone = false;
+    let dupes = 0;
     String(text || '').replace(/^﻿/, '').split(/\r?\n/).forEach((raw, i) => {
       const line = i + 1;
       if (!raw.trim() || raw.trim().startsWith('#') || /^[\s|:\-+]+$/.test(raw)) return;
       let cells;
       try { cells = splitLine(raw); } catch (e) { errors.push({ line, text: raw, reason: e.message }); return; }
       while (cells.length > 5 && !cells[cells.length - 1]) cells.pop();
-      if (!headerDone) {
-        headerDone = true;
-        if (/^date$/i.test(cells[0])) return;
-      }
+      if (/^date$/i.test(cells[0])) return;   // header row (also repeated headers from several sheets/pages)
       if (cells.length !== 5) {
         errors.push({ line, text: raw, reason: `expected 5 columns (Date | Subject | Chapter | Lecture | Duration), found ${cells.length}` });
         return;
@@ -129,10 +126,11 @@
     dlg = el('dialog', { class: 'sheet wide' });
     ta = el('textarea', { rows: 6, spellcheck: 'false', placeholder: 'Date | Subject | Chapter | Lecture | Duration\n12/10/2026 | Taxation | GST - ITC | Lec 16 | 1h 30m' });
     ta.addEventListener('input', preview);
-    const file = el('input', { type: 'file', accept: '.csv,.txt,.tsv,text/csv,text/plain' });
+    const file = el('input', { type: 'file', accept: FileText.ACCEPT });
     file.addEventListener('change', async () => {
       const f = file.files[0]; if (!f) return;
-      try { ta.value = await f.text(); } catch (e) { ta.value = ''; results.replaceChildren(el('div', { class: 'err' }, 'Could not read that file.')); return; }
+      results.replaceChildren(el('div', { class: 'hint' }, 'Reading file…'));
+      try { ta.value = await FileText.read(f); } catch (e) { ta.value = ''; results.replaceChildren(el('div', { class: 'err' }, e.message || 'Could not read that file.')); return; }
       preview();
     });
     results = el('div', { class: 'preview' });
@@ -146,9 +144,9 @@
     } }, 'Download CSV template');
     dlg.append(
       el('h2', {}, 'Upload planner'),
-      el('p', { class: 'hint' }, 'Columns: Date | Subject | Chapter | Lecture | Duration. Separate with commas, tabs or | . ',
+      el('p', { class: 'hint' }, 'Columns: Date | Subject | Chapter | Lecture | Duration (as table columns in Excel / Word / PDF, or separated by commas, tabs or | in text). ',
         'Dates: DD/MM/YYYY, YYYY-MM-DD or 5 Oct 2026. Duration: 90, 90 min, 1h 30m or 1:30 (a bare number means minutes). ', tpl),
-      el('label', { class: 'field' }, 'Choose a CSV / text file', file),
+      el('label', { class: 'field' }, 'Choose a file (Excel, PDF, Word .docx, CSV or text)', file),
       el('label', { class: 'field' }, 'or paste the planner here', ta),
       results, sampleRow,
       el('div', { class: 'actions' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Cancel'), saveBtn));

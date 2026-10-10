@@ -146,7 +146,7 @@
       const line = i + 1;
       let c; try { c = splitLine(raw); } catch (e) { errors.push({ line, text: raw, reason: e.message }); return; }
       while (c.length > 3 && !c[c.length - 1]) c.pop();
-      if (first) { first = false; if (/^date$/i.test(c[0])) return; }
+      if (/^date$/i.test(c[0])) return;
       if (c.length < 2 || c.length > 3) { errors.push({ line, text: raw, reason: `expected Date | Test name | Subject, found ${c.length} column${c.length === 1 ? '' : 's'}` }); return; }
       try {
         const date = parseDate(c[0]), name = c[1].trim(), subject = (c[2] || '').trim();
@@ -162,7 +162,7 @@
   function openTimetable() {
     if (!ttDlg) {
       const ta = el('textarea', { rows: 5, spellcheck: 'false', placeholder: 'Date | Test | Subject\n20/10/2026 | Mock Test 3 | Costing' });
-      const file = el('input', { type: 'file', accept: '.csv,.txt,.tsv,text/csv,text/plain' });
+      const file = el('input', { type: 'file', accept: FileText.ACCEPT });
       const out = el('div', { class: 'preview' });
       const rep = el('input', { type: 'checkbox', checked: true });
       const repRow = el('label', { class: 'check-row' }, rep, ' Replace sample timetable');
@@ -185,12 +185,12 @@
         if (cur.rows.length) save.textContent = `Save ${cur.rows.length} test${cur.rows.length === 1 ? '' : 's'}`;
       };
       ta.addEventListener('input', preview); rep.addEventListener('change', preview);
-      file.addEventListener('change', async () => { const f = file.files[0]; if (!f) return; try { ta.value = await f.text(); } catch (e) { ta.value = ''; } preview(); });
+      file.addEventListener('change', async () => { const f = file.files[0]; if (!f) return; out.replaceChildren(el('div', { class: 'hint' }, 'Reading file…')); try { ta.value = await FileText.read(f); } catch (e) { ta.value = ''; out.replaceChildren(el('div', { class: 'err' }, e.message || 'Could not read that file.')); return; } preview(); });
       save.addEventListener('click', () => { if (!cur || !cur.rows.length) return; Store.addTimetable(cur.rows, rep.checked); ttDlg.close(); App.render(); });
       ttDlg = el('dialog', { class: 'sheet wide' },
         el('h2', {}, 'Upload test timetable'),
         el('p', { class: 'hint' }, 'Columns: Date | Test name | Subject (subject optional). Commas, tabs or | separators; dates as DD/MM/YYYY, YYYY-MM-DD or 5 Oct 2026.'),
-        el('label', { class: 'field' }, 'Choose a CSV / text file', file),
+        el('label', { class: 'field' }, 'Choose a file (Excel, PDF, Word .docx, CSV or text)', file),
         el('label', { class: 'field' }, 'or paste it here', ta), out, repRow,
         el('div', { class: 'actions' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => ttDlg.close() }, 'Cancel'), save));
       ttDlg._reset = () => { ta.value = ''; file.value = ''; rep.checked = true; preview(); };
