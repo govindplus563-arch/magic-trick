@@ -36,7 +36,7 @@
   }
 
   function parseDate(s) {
-    s = s.trim().replace(/\s+/g, ' ');
+    s = s.trim().replace(/\s+/g, ' ').replace(/^[A-Za-z]{3,9}day\.?,?\s+/i, '');   // drop a leading weekday
     if (!s) throw new Error('date is empty');
     let y, m, d, mt;
     if ((mt = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/))) { y = +mt[1]; m = +mt[2]; d = +mt[3]; }
@@ -83,8 +83,61 @@
 
   const key = r => [r.date, r.subject.toLowerCase(), r.chapter.toLowerCase(), r.lecture.toLowerCase()].join('|');
 
+
+  /* ---- Structured "Lecture Planner - <Subject>" tables (S No | Chapter | No of Lecture | Total | Date of Lecture) ----
+   * Subject comes from the section heading, the lecture number from S No, and there is no duration column
+   * (opts.defaultDuration is used). Chapters that wrap over several lines in a PDF are stitched back together. */
+  const DATE_CELL = /^(?:[A-Za-z]{3,9}day,?\s+)?[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}$|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$|^\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4}$/;
+
+  function parseStructured(text, existing, opts) {
+    const dur = Math.max(1, Math.round((opts && opts.defaultDuration) || 90));
+    const seen = new Set((existing || []).map(key));
+    const seq = [], rows = [], errors = [];
+    let subject = null, dupes = 0;
+    String(text).replace(/^﻿/, '').split(/\r?\n/).forEach((raw, i) => {
+      const cells = raw.split('\t').map(c => c.trim()).filter(Boolean);
+      if (!cells.length) return;
+      const line = i + 1;
+      const di = cells.findIndex((c, k) => k > 0 && DATE_CELL.test(c));   // date may be followed by extra columns (e.g. faculty)
+      const h = raw.match(/lecture planner\s*[-–:]\s*(.+?)\s*$/i);
+      if (h) { subject = h[1].trim(); seq.push({ t: 'other' }); return; }
+      const isInt = /^\d+$/.test(cells[0]);
+      if (subject && isInt && di >= 2) {
+        const mid = cells.slice(1, di);
+        const chapter = mid.find(c => !/^\d+$/.test(c)) || '';
+        seq.push({ t: 'mid', line, raw, subject, sno: cells[0], chapter, date: cells[di] });
+      } else if (subject && isInt && cells.length >= 3) {
+        errors.push({ line, text: raw, reason: 'no readable date found in this row' });
+        seq.push({ t: 'other' });
+      } else if (subject && cells.length === 1 && !/\bGroup\s*\d+\s*$/i.test(raw) && !/\bPage\s+\d+/i.test(raw)) {
+        seq.push({ t: 'frag', text: cells[0] });
+      } else seq.push({ t: 'other' });
+    });
+    seq.forEach((e, i) => {
+      if (e.t !== 'mid') return;
+      let chapter = e.chapter;
+      if (!chapter) {   // chapter wrapped onto the line above and/or below this row
+        const parts = [];
+        const b = seq[i - 1], a = seq[i + 1];
+        if (b && b.t === 'frag' && !b.used) { b.used = true; parts.push(b.text); }
+        if (a && a.t === 'frag' && !a.used) { a.used = true; parts.push(a.text); }
+        chapter = parts.join(' ');
+      }
+      try {
+        if (!chapter) throw new Error('chapter name not found for this row');
+        const r = { line: e.line, date: parseDate(e.date), subject: e.subject, chapter, lecture: parseLecture(e.sno), duration: dur };
+        if (seen.has(key(r))) { dupes++; return; }
+        seen.add(key(r)); rows.push(r);
+      } catch (err) { errors.push({ line: e.line, text: e.raw, reason: err.message }); }
+    });
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
+    errors.sort((a, b) => a.line - b.line);
+    return { rows, errors, dupes, structured: true };
+  }
+
   /** -> { rows:[{line,date,subject,chapter,lecture,duration}], errors:[{line,text,reason}], dupes:n } */
-  function parse(text, existing) {
+  function parse(text, existing, opts) {
+    if (/lecture planner\s*[-\u2013:]/i.test(text)) return parseStructured(text, existing, opts);
     const rows = [], errors = [];
     const seen = new Set((existing || []).map(key));
     let dupes = 0;
@@ -120,7 +173,7 @@
   const { el } = HomeView;
   const D = Store.D;
   const TEMPLATE = 'Date,Subject,Chapter,Lecture,Duration\n2026-10-12,Taxation,GST - Input Tax Credit,Lec 16,1h 30m\n13/10/2026,Law,Companies Act,9,75 min\n14 Oct 2026,Audit,Nature of Audit,7,1:15\n';
-  let dlg, ta, results, saveBtn, clearSample, sampleRow, current = null;
+  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, current = null;
 
   function build() {
     dlg = el('dialog', { class: 'sheet wide' });
@@ -135,7 +188,17 @@
     });
     results = el('div', { class: 'preview' });
     clearSample = el('input', { type: 'checkbox', checked: true });
+    clearSample.addEventListener('change', preview);
     sampleRow = el('label', { class: 'check-row' }, clearSample, ' Remove sample data when saving');
+    durIn = el('input', { type: 'number', min: 1, max: 600, value: 90, 'aria-label': 'Default duration in minutes' });
+    durIn.addEventListener('input', preview);
+    durRow = el('label', { class: 'field inline-field' }, 'This planner has no durations. Use (minutes) for every lecture: ', durIn);
+    pastSel = el('select', { 'aria-label': 'Lectures dated before today' },
+      el('option', { value: 'missed' }, 'Add as missed (they go to Backlog)'),
+      el('option', { value: 'done' }, 'Add as already done'),
+      el('option', { value: 'skip' }, 'Skip them'));
+    pastSel.addEventListener('change', refreshSave);
+    pastRow = el('label', { class: 'field inline-field' }, '', pastSel);
     saveBtn = el('button', { class: 'btn primary', type: 'button', disabled: true, onclick: save }, 'Save');
     const tpl = el('a', { href: '#', class: 'link', onclick: e => {
       e.preventDefault();
@@ -148,7 +211,7 @@
         'Dates: DD/MM/YYYY, YYYY-MM-DD or 5 Oct 2026. Duration: 90, 90 min, 1h 30m or 1:30 (a bare number means minutes). ', tpl),
       el('label', { class: 'field' }, 'Choose a file (Excel, PDF, Word .docx, CSV or text)', file),
       el('label', { class: 'field' }, 'or paste the planner here', ta),
-      results, sampleRow,
+      results, durRow, pastRow, sampleRow,
       el('div', { class: 'actions' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Cancel'), saveBtn));
     document.body.append(dlg);
   }
@@ -159,8 +222,18 @@
     saveBtn.disabled = true; saveBtn.textContent = 'Save'; current = null;
     sampleRow.hidden = !st.sampleActive;
     if (!ta.value.trim()) return;
-    current = parse(ta.value, st.lectures.filter(l => !(st.sampleActive && clearSample.checked && l.sample)));
+    durRow.hidden = pastRow.hidden = true;
+    current = parse(ta.value, st.lectures.filter(l => !(st.sampleActive && clearSample.checked && l.sample)),
+      { defaultDuration: +durIn.value || 90 });
     const { rows, errors, dupes } = current;
+    durRow.hidden = !current.structured;
+    const nPast = rows.filter(r => r.date < D.today()).length;
+    pastRow.hidden = !nPast;
+    if (nPast) pastRow.firstChild.textContent = `${nPast} lecture${nPast === 1 ? ' is' : 's are'} dated before today: `;
+    if (rows.length) {
+      const by = {}; rows.forEach(r => by[r.subject] = (by[r.subject] || 0) + 1);
+      results.append(el('div', { class: 'hint' }, Object.entries(by).map(([k, v]) => `${k}: ${v}`).join(' · ')));
+    }
     results.append(el('div', { class: 'chips' },
       el('span', { class: 'chip ok' }, `${rows.length} ready`),
       dupes ? el('span', { class: 'chip' }, `${dupes} already saved`) : null,
@@ -178,15 +251,25 @@
           el('code', {}, e.text.length > 120 ? e.text.slice(0, 120) + '…' : e.text)))));
     }
     if (!rows.length && !errors.length) results.append(el('div', { class: 'hint' }, 'Nothing new to add.'));
-    saveBtn.disabled = !rows.length;
-    saveBtn.textContent = rows.length ? `Save ${rows.length} lecture${rows.length === 1 ? '' : 's'}` : 'Save';
+    refreshSave();
+  }
+
+  function rowsToSave() {
+    if (!current) return [];
+    return pastSel.value === 'skip' && !pastRow.hidden ? current.rows.filter(r => r.date >= D.today()) : current.rows;
+  }
+  function refreshSave() {
+    const n = rowsToSave().length;
+    saveBtn.disabled = !n;
+    saveBtn.textContent = n ? `Save ${n} lecture${n === 1 ? '' : 's'}` : 'Save';
   }
 
   function save() {
-    if (!current || !current.rows.length) return;
+    const rows = rowsToSave();
+    if (!rows.length) return;
     const st = Store.get();
     if (st.sampleActive && clearSample.checked) Store.clearSample();
-    Store.addLectures(current.rows);
+    Store.addLectures(rows, { pastDone: !pastRow.hidden && pastSel.value === 'done' });
     dlg.close();
     App.render();
   }
@@ -196,7 +279,7 @@
     open() {
       if (!dlg) build();
       ta.value = ''; dlg.querySelector('input[type=file]').value = '';
-      clearSample.checked = true;
+      clearSample.checked = true; pastSel.value = 'missed';
       preview();
       dlg.showModal();
     }

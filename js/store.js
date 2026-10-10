@@ -198,11 +198,16 @@
       save();
     },
 
-    addLectures(rows) {
-      rows.forEach(r => state.lectures.push({
-        id: uid(), date: r.date, subject: r.subject, chapter: r.chapter, lecture: String(r.lecture),
-        duration: r.duration, done: false, doneOn: null
-      }));
+    /** opts.pastDone: lectures dated before today are saved as already done (no revision slots are created for them). */
+    addLectures(rows, opts) {
+      const t = D.today();
+      rows.forEach(r => {
+        const done = !!(opts && opts.pastDone && r.date < t);
+        state.lectures.push({
+          id: uid(), date: r.date, subject: r.subject, chapter: r.chapter, lecture: String(r.lecture),
+          duration: r.duration, done, doneOn: done ? r.date : null
+        });
+      });
       const dates = state.lectures.map(x => x.date).sort();
       if (dates.length && (!state.planStart || dates[0] < state.planStart)) state.planStart = dates[0];
       save();
