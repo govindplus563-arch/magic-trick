@@ -92,7 +92,7 @@
       'The MISTAKE BOOK section lists what the student got wrong. Use it to quiz them (one question at a time, wait for their answer), to explain why they went wrong, or to answer "what should I revise before the test".',
       'If it is only a question about the plan (e.g. "what is due today?"), answer it from the plan below and return no actions.',
       'ACTIONS. Each action selects lectures with optional filters: subject, chapter (substring ok), from_date, to_date (inclusive, YYYY-MM-DD), lecture_from, lecture_to (lecture numbers inside a chapter), status (all | pending = not done | done | missed). Use subject and chapter names exactly as in the outline.',
-      '- shift: move the selected lectures by shift_days (negative = earlier). To push a whole subject or the whole plan, select with from_date = the first date to move and no to_date.',
+      '- shift: move the selected lectures by shift_days study days (negative = earlier). Days on which the plan has no lectures (such as Sundays) are skipped automatically, so do not add skip_weekdays unless the student asks for a different rest day. To push a whole subject or the whole plan, select with from_date = the first date to move and no to_date.',
       '- move_to: put all selected lectures on one date.',
       '- spread: lay the selected lectures out from date onwards, per_day lectures per day (default 2), skipping skip_weekdays (mon..sun). Use this to reschedule missed lectures.',
       '- mark_done / mark_undone: change completion of the selected lectures.',
@@ -173,8 +173,14 @@
       if (type === 'shift') {
         const n = Math.max(-120, Math.min(120, parseInt(a.shift_days, 10) || 0));
         if (!n) { notes.push('Skipped a shift of 0 days.'); return; }
-        sel.forEach(l => edits.moves.push({ id: l.id, date: D.add(l.date, n), orig: false }));
-        items.push({ text: `Shift ${scope(sel)} by ${n > 0 ? '+' : ''}${plural(n, 'day')}`, more: example(sel, l => D.add(l.date, n)) });
+        // count study days: weekdays the plan never uses (e.g. Sundays) are skipped, so a Friday lecture does not land on a rest day
+        let off = new Set((a.skip_weekdays || []).map(x => DAYS.indexOf(String(x).slice(0, 3).toLowerCase())).filter(i => i >= 0));
+        if (!off.size && st.lectures.length >= 20) { const cnt = [0, 0, 0, 0, 0, 0, 0]; st.lectures.forEach(l => cnt[D.parse(l.date).getDay()]++); off = new Set(cnt.map((c, i) => c === 0 ? i : -1).filter(i => i >= 0)); }
+        if (off.size >= 7) off = new Set();
+        const moveBy = d => { let x = d; const step = n > 0 ? 1 : -1; for (let k = 0; k < Math.abs(n); k++) { do { x = D.add(x, step); } while (off.has(D.parse(x).getDay())); } return x; };
+        sel.forEach(l => edits.moves.push({ id: l.id, date: moveBy(l.date), orig: false }));
+        const skipTxt = off.size ? ` (skipping ${[...off].sort().map(i => ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'][i]).join(', ')})` : '';
+        items.push({ text: `Shift ${scope(sel)} by ${n > 0 ? '+' : ''}${plural(n, off.size ? 'study day' : 'day')}${skipTxt}`, more: example(sel, l => moveBy(l.date)) });
       } else if (type === 'move_to') {
         if (!D.isValid(a.date) || a.date < t) { notes.push('Skipped a move: the target date was missing or in the past.'); return; }
         sel.forEach(l => edits.moves.push({ id: l.id, date: a.date, orig: l.date < t }));
@@ -328,7 +334,7 @@
       if (notice) wait.append(el('div', { class: 'p-note' }, notice));
       if (modelUsed && !notice) wait.append(el('div', { class: 'p-note' }, 'Answered by ' + modelUsed));
       if (hits.length) wait.append(sources(hits));
-      else if (Library.available() && libraryHasBooks) wait.append(el('div', { class: 'p-note' }, '📚 Nothing in your uploaded books matched this question, so this answer is from general knowledge. Check it against ICAI material.'));
+      else if (Library.available() && libraryHasBooks && !res.items.length && !res.notes.length && text.trim().split(/\s+/).length >= 4) wait.append(el('div', { class: 'p-note' }, '📚 Nothing in your uploaded books matched this question, so this answer is from general knowledge. Check it against ICAI material.'));
       if (res.items.length || res.notes.length) wait.append(proposal(res, text));
     } catch (e) {
       history.pop();

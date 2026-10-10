@@ -11,6 +11,7 @@
       el('div', { class: 'bl-foot' },
         el('span', { class: 'bl-date' }, D.fmtShort(date)),
         el('div', { class: 'bl-actions' },
+          el('button', { class: 'btn primary sm', onclick: () => { if (type === 'lecture') Store.toggleLecture(item.id); else Store.toggleRevision(item.id); App.toast(type === 'lecture' ? 'Marked as watched. Revision slots were added from today.' : 'Marked as revised.'); App.render(); } }, '✓ Done'),
           el('button', { class: 'btn outline sm', onclick: () => App.openReschedule(type, item.id, what) }, 'Reschedule'),
           el('button', { class: 'btn outline sm', onclick: () => { Store.clearItem(type, item.id); App.render(); } }, 'Clear'))));
   }

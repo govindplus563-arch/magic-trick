@@ -37,11 +37,12 @@
           catch (e) { if (e && /cancel/i.test(String(e.message || e))) return; App.toast('Could not save the backup: ' + (e.message || e), 'err'); return; }
           App.toast(Files.isNative() ? 'Choose where to save your backup.' : 'Backup downloaded.'); App.render();
         } }, 'Export backup'),
-        el('button', { class: 'btn outline sm', onclick: () => fileIn.click() }, 'Import backup'),
+        el('button', { class: 'btn outline sm', onclick: () => fileIn.click() }, 'Import backup')),
+      el('div', { class: 'danger-zone' }, el('span', {}, 'Danger zone'),
         el('button', { class: 'btn danger sm', onclick: () => {
-          if (confirm('Erase ALL lectures, revisions and tests? This cannot be undone.\n\nTip: Export a backup first.') &&
+          if (confirm('Erase ALL lectures, revisions, tests and mistakes? This cannot be undone.\n\nTip: Export a backup first.') &&
               confirm('Really erase everything?')) { Store.eraseAll(); App.toast('All data erased.'); App.render(); }
-        } }, 'Erase all')),
+        } }, 'Erase all data')),
       fileIn);
   }
 

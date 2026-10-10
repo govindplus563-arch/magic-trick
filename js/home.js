@@ -129,8 +129,13 @@
       'aria-label': 'Daily progress' }, el('div', { class: 'bar-fill teal', style: `width:${pct}%` })));
 
     if (!list.length) {
-      root.append(el('div', { class: 'empty card' }, 'No lectures planned for today.',
-        el('br'), 'Add one below, or upload your planner from ⚙️ Settings.'));
+      const upcoming = st.lectures.filter(l => !l.done && l.date > t).sort((x, y) => x.date.localeCompare(y.date))[0];
+      const missedN = Store.backlog().lectures.length;
+      root.append(el('div', { class: 'empty card' },
+        upcoming ? el('div', {}, el('strong', {}, 'Rest day. No lectures today.'), el('br'),
+          `Next: ${D.parse(upcoming.date).toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })} · ${upcoming.subject} - ${upcoming.chapter}`)
+          : el('div', {}, 'No lectures planned for today.', el('br'), 'Add one below, or upload your planner from ⚙️ Settings.'),
+        missedN ? el('div', { style: 'margin-top:8px' }, el('a', { href: '#backlog', class: 'link' }, `${missedN} missed lectures are waiting in Backlog`)) : null));
     } else {
       list.forEach(l => root.append(lectureCard(l)));
     }
