@@ -511,3 +511,9 @@ select, input, textarea { color-scheme: inherit; }
 .arrow { min-width: 44px; min-height: 40px; font-size: 26px; }
 .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--danger-border); font-size: 12px; color: var(--muted); }
 .bl-actions { flex-wrap: wrap; }
+
+.ai-pick-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.ai-pick { padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; background: var(--card, #fff); color: inherit; min-width: 0; max-width: 100%; flex: 1 1 140px; }
+.ai-pick.lang { flex: 0 1 90px; }
+.chat-form .mic.on { background: #e11d48; color: #fff; animation: micpulse 1s infinite; }
+@keyframes micpulse { 50% { opacity: .55; } }

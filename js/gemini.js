@@ -418,7 +418,7 @@
 
   /** The main model; if it fails for any reason except a bad key or Cancel, the backup model (if one is set). Returns parsed JSON. */
   async function runJSON(body, opts) {
-    const s = settings();
+    const s = Object.assign(settings(), opts.force ? { model: opts.force, backupModel: '' } : {});   // force = the model picked in the chat, no fallback
     if (!hasKey()) throw new Error('Add an API key (Gemini or Groq) in AI settings first.');
     if (!keyFor(s.model)) throw new Error(isGroq(s.model) ? 'The Main model is a Groq model but no Groq key is set. Open AI settings.' : 'Add your Gemini API key in AI settings first.');
     const backup = s.backupModel && s.backupModel !== s.model ? s.backupModel : '';
@@ -430,7 +430,7 @@
     try { text = await attempt(s.model, body, mainOpts, !!backup); return done(read()); }
     catch (e) {
       if (e.name === 'AbortError' || isAuth(e)) throw e;
-      if (e.code === 'MODEL_NOT_FOUND' && !backup && !isGroq(s.model)) {
+      if (e.code === 'MODEL_NOT_FOUND' && !backup && !opts.force && !isGroq(s.model)) {
         const best = pickBest(await listModels(s.key, opts.signal));
         if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
         if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
@@ -518,5 +518,5 @@
     return runJSON(mk(system), Object.assign({ expect: 'chat' }, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { pickMain, ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey, listGroqModels };
+  window.Gemini = { pickMain, ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey, listGroqModels, keyFor };
 })();

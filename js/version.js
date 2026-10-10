@@ -1,2 +1,2 @@
 /* Shown at the bottom of Settings so you can tell which version of the app you are running. */
-window.APP_VERSION = '2026.10.10-n (Groq as extra AI provider)';
+window.APP_VERSION = '2026.10.10-o (chat AI picker, voice typing)';

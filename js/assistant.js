@@ -326,7 +326,7 @@
           let used = 0; hits = hits.filter(h => (used += h.text.length) <= 6500);
         }
       } catch (e) { hits = []; }   // the Library is optional: never block the chat
-      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { compactSystem: systemPrompt(hits, true), onModel: m => { modelUsed = m; }, onNotice: m => { notice = m; }, signal: ctl.signal, timeoutMs: 45000 });
+      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { compactSystem: systemPrompt(hits, true), onModel: m => { modelUsed = m; }, force: pickedModel(), onNotice: m => { notice = m; }, signal: ctl.signal, timeoutMs: 45000 });
       const reply = String(out.reply || '').trim() || 'Okay.';
       const res = resolve(Array.isArray(out.actions) ? out.actions : []);
       history.push({ role: 'model', text: reply + (res.items.length ? ' [proposed: ' + res.items.map(i => i.text).join('; ') + ']' : '') });
@@ -359,6 +359,21 @@
       el('button', { class: 'x', type: 'button', 'aria-label': 'Remove file', onclick: () => { attached = null; history.push({ role: 'user', text: '(the student removed the attached file)' }); renderAttach(); } }, '×'));
   }
 
+  const PICK = 'studyPlanner.chatAI', LANGLS = 'studyPlanner.voiceLang';
+  const LANGS = [['en-IN', 'English'], ['hi-IN', 'हिन्दी'], ['te-IN', 'తెలుగు'], ['ta-IN', 'தமிழ்'], ['en-US', 'English (US)']];
+  let aiSel, micBtn;
+  const provLabel = m => (/^groq:/i.test(m) ? 'Groq · ' + m.replace(/^groq:/i, '') : 'Gemini · ' + m);
+  /** model chosen in the chat dropdown ('' = Auto: Main, then Backup) */
+  function pickedModel() { const v = aiSel && aiSel.value; return v && v !== 'auto' && Gemini.keyFor(v) ? v : ''; }
+  function refreshAiPick() {
+    if (!aiSel) return;
+    const s = Gemini.settings(), opts = [['auto', 'Auto (Main, then Backup)']];
+    [s.model, s.backupModel].filter((m, i, a) => m && a.indexOf(m) === i && Gemini.keyFor(m)).forEach(m => opts.push([m, provLabel(m) + (m === s.model ? ' (Main)' : ' (Backup)')]));
+    let cur = 'auto'; try { cur = localStorage.getItem(PICK) || 'auto'; } catch (e) { /* ignore */ }
+    aiSel.replaceChildren(...opts.map(([v, n]) => el('option', { value: v }, n)));
+    aiSel.value = opts.some(o => o[0] === cur) ? cur : 'auto';
+  }
+
   function build() {
     list = el('div', { class: 'chat-list' });
     input = el('input', { type: 'text', class: 'chat-input', maxlength: 600, placeholder: 'e.g. push Taxation by 3 days after 15 Oct', 'aria-label': 'Message' });
@@ -376,8 +391,27 @@
       } catch (e) { attached = null; bubble('bot err', e.message || 'Could not read that file.'); }
       renderAttach();
     });
+    aiSel = el('select', { class: 'ai-pick', 'aria-label': 'Which AI answers' });
+    aiSel.onchange = () => { try { localStorage.setItem(PICK, aiSel.value); } catch (e) { /* ignore */ } };
+    const langSel = el('select', { class: 'ai-pick lang', 'aria-label': 'Voice language' },
+      LANGS.map(([v, n]) => el('option', { value: v }, n)));
+    try { langSel.value = localStorage.getItem(LANGLS) || 'en-IN'; } catch (e) { /* ignore */ }
+    langSel.onchange = () => { try { localStorage.setItem(LANGLS, langSel.value); } catch (e) { /* ignore */ } };
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null;
+    micBtn = el('button', { class: 'clip mic', type: 'button', title: 'Speak instead of typing', 'aria-label': 'Voice typing', onclick: () => {
+      if (!SR) { bubble('bot err', 'Voice typing is not supported in this browser/app. Use Chrome on your phone, or use the keyboard\'s own 🎤 button.'); return; }
+      if (rec) { rec.stop(); return; }
+      rec = new SR(); rec.lang = langSel.value; rec.interimResults = true; rec.continuous = false;
+      const base = input.value ? input.value.replace(/\s*$/, ' ') : '';
+      rec.onresult = ev => { let s = ''; for (const r of ev.results) s += r[0].transcript; input.value = (base + s).slice(0, 600); };
+      rec.onerror = ev => { micBtn.classList.remove('on'); rec = null; bubble('bot err', ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? 'Microphone permission is blocked. Allow the microphone for this site and try again.' : ev.error === 'no-speech' ? 'I did not hear anything. Tap 🎤 and speak again.' : 'Voice typing failed (' + ev.error + ').'); };
+      rec.onend = () => { micBtn.classList.remove('on'); rec = null; input.focus(); };
+      try { rec.start(); micBtn.classList.add('on'); } catch (e) { rec = null; }
+    } }, '🎤');
+    const aiRow = el('div', { class: 'ai-pick-row' }, el('span', { class: 'hint', style: 'margin:0' }, 'AI:'), aiSel, el('span', { class: 'hint', style: 'margin:0' }, '🎤'), langSel);
     const form = el('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); send(input.value); } },
-      el('button', { class: 'clip', type: 'button', title: 'Attach a file (PDF, Word, Excel, CSV, text)', 'aria-label': 'Attach a file', onclick: () => fileIn.click() }, '📎'), input, sendBtn, fileIn);
+      el('button', { class: 'clip', type: 'button', title: 'Attach a file (PDF, Word, Excel, CSV, text)', 'aria-label': 'Attach a file', onclick: () => fileIn.click() }, '📎'), input, micBtn, sendBtn, fileIn);
     attachRow = el('div', { class: 'attach-row', hidden: true });
     undoBar = el('div', { class: 'undo-bar', hidden: true }, el('span', {}, ''),
       el('button', { class: 'btn outline sm', type: 'button', onclick: () => {
@@ -386,22 +420,22 @@
       } }, 'Undo'));
     dlg = el('dialog', { class: 'sheet chat' },
       el('div', { class: 'chat-head' }, el('h2', {}, '✨ Study assistant'),
-        el('button', { class: 'btn ghost sm', type: 'button', onclick: () => Gemini.openSettings() }, 'AI settings'),
+        el('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { await Gemini.openSettings(); refreshAiPick(); } }, 'AI settings'),
         el('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, '×')),
       list, undoBar, attachRow,
       el('div', { class: 'chips-row' }, SUGGESTIONS.map(s => el('button', { class: 'sugg', type: 'button', onclick: () => send(s) }, s))),
-      form,
+      aiRow, form,
       el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Your message, an outline of your plan (subjects, chapters, dates, progress) and any file you attach are sent to your AI service (Gemini or Groq). Nothing changes until you press Apply.'));
     document.body.append(dlg);
     bubble('bot', "Hi! Ask me to change your plan (“push everything after today by 3 days”, “move the exam to 20 Nov”) or to explain any topic (“explain AS 14 simply”). I show changes first and only apply them when you say so.");
   }
 
   /** Open the chat and send a question straight away (used by the "explain" buttons on lecture cards). */
-  async function ask(text) { if (!dlg) build(); refreshUndo(); if (!dlg.open) dlg.showModal(); await send(text); }
+  async function ask(text) { if (!dlg) build(); refreshUndo(); refreshAiPick(); if (!dlg.open) dlg.showModal(); await send(text); }
 
   function close() { if (dlg && dlg.open) dlg.close(); }
 
-  function open() { if (!dlg) build(); refreshUndo(); dlg.showModal(); setTimeout(() => input.focus(), 50); }
+  function open() { if (!dlg) build(); refreshUndo(); refreshAiPick(); dlg.showModal(); setTimeout(() => input.focus(), 50); }
 
   window.Assistant = { open, close, ask, resolve, outline, systemPrompt };
 })();
