@@ -25,6 +25,8 @@
         el('div', { class: 'rev-text' },
           el('div', { class: 'lec-title' }, `${l.subject}: ${l.chapter}`),
           el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}${n}`)),
+        el('button', { class: 'explain', type: 'button', title: 'Quick revision note', 'aria-label': 'Revision note for ' + l.chapter,
+          onclick: () => Assistant.ask(`Give me a quick revision note on "${l.chapter}" (${l.subject}): key points to remember and one likely exam question.`) }, '✨'),
         el('button', { class: 'btn sm ' + (r.done ? 'donebtn' : 'teal'),
           onclick: () => { Store.toggleRevision(r.id); App.render(); } }, r.done ? '✓ Done' : 'Done')));
   }

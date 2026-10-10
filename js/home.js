@@ -83,6 +83,8 @@
       el('div', { class: 'lec-text' },
         el('div', { class: 'lec-title' }, title),
         el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}  ·  ${D.dur(l.duration)}`)),
+      el('button', { type: 'button', class: 'explain', title: 'Explain this topic', 'aria-label': 'Explain ' + title,
+        onclick: e => { e.preventDefault(); e.stopPropagation(); Assistant.ask(`Explain "${l.chapter}" (${l.subject}) simply. I am about to study it.`); } }, '✨'),
       cb, el('span', { class: 'cbx', 'aria-hidden': 'true' }));
   }
 

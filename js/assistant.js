@@ -71,9 +71,13 @@
     const rules = Gemini.settings().chatRules;
     return [
       "You are the study-planner assistant inside a CA Inter student's planner app. You help change their lecture plan.",
-      'You never change anything yourself. You describe what you will do in "reply" (1-3 short sentences, plain words) and put machine-readable changes in "actions". The student must press Apply before anything changes.',
+      'You never change anything yourself. For plan changes, describe what you will do in "reply" (1-3 short sentences, plain words) and put machine-readable changes in "actions". The student must press Apply before anything changes.',
+      'You are also a patient tutor. When the student asks to explain a concept, standard, section, accounting treatment, formula or chapter topic (or asks for an example, a summary, a quick quiz or a revision note), put the full answer in "reply" and return no actions:',
+      '- Use simple English, as for a CA Inter student seeing it for the first time. Start with a one-line plain definition, then 3-6 short bullet points ("- " at the start of a line), then a tiny worked example with small numbers if it helps. Bold key terms with **double asterisks**. Keep it under about 250 words unless they ask for more.',
+      '- Use the plan to know what they are studying: "today\'s lecture" or "this chapter" means the lectures listed for today / the next days in the outline.',
+      '- For exact figures that change with amendments (tax rates, limits, section numbers, due dates), give them only if you are confident, and add a short reminder to confirm with the ICAI study material or the latest amendments. If you are not sure, say so instead of guessing.',
       'If the request is unclear, or could mean different things, ask ONE short question and return no actions.',
-      'If it is only a question (e.g. "what is due today?"), answer it from the plan below and return no actions.',
+      'If it is only a question about the plan (e.g. "what is due today?"), answer it from the plan below and return no actions.',
       'ACTIONS. Each action selects lectures with optional filters: subject, chapter (substring ok), from_date, to_date (inclusive, YYYY-MM-DD), lecture_from, lecture_to (lecture numbers inside a chapter), status (all | pending = not done | done | missed). Use subject and chapter names exactly as in the outline.',
       '- shift: move the selected lectures by shift_days (negative = earlier). To push a whole subject or the whole plan, select with from_date = the first date to move and no to_date.',
       '- move_to: put all selected lectures on one date.',
@@ -176,8 +180,28 @@
   }
 
   /* ---------- chat window ---------- */
+  // minimal, safe formatting for replies: paragraphs, "- " bullets, "1. " lists and **bold** (no HTML is ever injected)
+  function inline(text) {
+    const out = document.createDocumentFragment();
+    String(text).split(/(\*\*[^*]+\*\*)/).forEach(part => {
+      if (/^\*\*[^*]+\*\*$/.test(part)) out.append(el('strong', {}, part.slice(2, -2)));
+      else if (part) out.append(part.replace(/\*\*/g, ''));
+    });
+    return out;
+  }
+  function rich(text) {
+    const box = el('div', { class: 'rich' });
+    let ul = null, ol = null;
+    String(text).split(/\r?\n/).forEach(line => {
+      const b = line.match(/^\s*[-*•]\s+(.*)$/), n = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (b) { if (!ul) { ul = el('ul', {}); box.append(ul); } ol = null; ul.append(el('li', {}, inline(b[1]))); }
+      else if (n) { if (!ol) { ol = el('ol', {}); box.append(ol); } ul = null; ol.append(el('li', {}, inline(n[1]))); }
+      else { ul = ol = null; if (line.trim()) box.append(el('p', {}, inline(line.trim()))); }
+    });
+    return box;
+  }
   let dlg, list, input, sendBtn, undoBar, history = [], busy = false;
-  const SUGGESTIONS = ['Push everything after today by 2 days', 'Reschedule my missed lectures over the next 5 days, 2 per day, skipping Sundays', 'Mark all lectures before today as done', 'What is due today?'];
+  const SUGGESTIONS = ['Explain today\'s lecture topic simply', 'Push everything after today by 2 days', 'Reschedule my missed lectures over the next 5 days, 2 per day, skipping Sundays', 'Mark all lectures before today as done', 'What is due today?'];
 
   function bubble(who, ...kids) { const b = el('div', { class: 'msg ' + who }, ...kids); list.append(b); list.scrollTop = list.scrollHeight; return b; }
 
@@ -220,7 +244,7 @@
       const reply = String(out.reply || '').trim() || 'Okay.';
       const res = resolve(Array.isArray(out.actions) ? out.actions : []);
       history.push({ role: 'model', text: reply + (res.items.length ? ' [proposed: ' + res.items.map(i => i.text).join('; ') + ']' : '') });
-      wait.replaceChildren(el('div', {}, reply));
+      wait.replaceChildren(rich(reply));
       if (notice) wait.append(el('div', { class: 'p-note' }, notice));
       if (res.items.length || res.notes.length) wait.append(proposal(res, text));
     } catch (e) {
@@ -248,10 +272,13 @@
       form,
       el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Your message and an outline of your plan (subjects, chapters, dates, progress) are sent to Google Gemini. Nothing changes until you press Apply.'));
     document.body.append(dlg);
-    bubble('bot', "Hi! Tell me what to change in your plan, for example “I'm 3 days behind, push everything after today by 3 days” or “move the exam to 20 Nov”. I'll show you the changes first and only apply them when you say so.");
+    bubble('bot', "Hi! Tell me what to change in your plan, for example “I'm 3 days behind, push everything after today by 3 days” or “move the exam to 20 Nov”. I can also explain any topic: ask “explain AS 14 amalgamation simply” or “quiz me on GST input tax credit”. For plan changes I'll show you the changes first and only apply them when you say so.");
   }
+
+  /** Open the chat and send a question straight away (used by the "explain" buttons on lecture cards). */
+  async function ask(text) { if (!dlg) build(); refreshUndo(); if (!dlg.open) dlg.showModal(); await send(text); }
 
   function open() { if (!dlg) build(); refreshUndo(); dlg.showModal(); setTimeout(() => input.focus(), 50); }
 
-  window.Assistant = { open, resolve, outline, systemPrompt };
+  window.Assistant = { open, ask, resolve, outline, systemPrompt };
 })();
