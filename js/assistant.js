@@ -391,7 +391,7 @@
       list, undoBar, attachRow,
       el('div', { class: 'chips-row' }, SUGGESTIONS.map(s => el('button', { class: 'sugg', type: 'button', onclick: () => send(s) }, s))),
       form,
-      el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Your message, an outline of your plan (subjects, chapters, dates, progress) and any file you attach are sent to Google Gemini. Nothing changes until you press Apply.'));
+      el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Your message, an outline of your plan (subjects, chapters, dates, progress) and any file you attach are sent to your AI service (Gemini or Groq). Nothing changes until you press Apply.'));
     document.body.append(dlg);
     bubble('bot', "Hi! Ask me to change your plan (“push everything after today by 3 days”, “move the exam to 20 Nov”) or to explain any topic (“explain AS 14 simply”). I show changes first and only apply them when you say so.");
   }

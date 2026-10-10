@@ -12,7 +12,7 @@
   let dlg;
 
   function settings() {
-    try { const s = JSON.parse(localStorage.getItem(LS) || '{}'); return { key: s.key || '', model: s.model || DEFAULT_MODEL, backupModel: s.backupModel || '', readRules: s.readRules || '', chatRules: s.chatRules || '' }; }
+    try { const s = JSON.parse(localStorage.getItem(LS) || '{}'); return { key: s.key || '', groqKey: s.groqKey || '', model: s.model || DEFAULT_MODEL, backupModel: s.backupModel || '', readRules: s.readRules || '', chatRules: s.chatRules || '' }; }
     catch (e) { return { key: '', model: DEFAULT_MODEL, backupModel: '', readRules: '', chatRules: '' }; }
   }
   function saveSettings(s) { try { localStorage.setItem(LS, JSON.stringify(s)); } catch (e) { /* private mode: not saved */ } }
@@ -24,12 +24,17 @@
         const key = el('input', { type: 'password', name: 'key', autocomplete: 'off', placeholder: 'AIza…' });
         const model = el('input', { type: 'text', name: 'model', autocomplete: 'off', list: 'geminiModels' });
         const f = el('form', { method: 'dialog' },
-          el('h2', {}, 'Gemini AI settings'),
+          el('h2', {}, 'AI settings (Gemini + Groq)'),
           el('p', { class: 'hint' }, 'Get a free key at ',
             el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener', class: 'link' }, 'aistudio.google.com/apikey'), '.'),
-          el('label', {}, 'API key', key),
+          el('label', {}, 'Gemini API key', key),
           el('button', { type: 'button', class: 'linkbtn', 'data-act': 'forget', style: 'margin:-4px 0 8px' }, 'Remove the key from this device'),
-          el('label', {}, 'Model', model),
+          el('h3', { style: 'margin:10px 0 2px;font-size:1rem' }, 'Groq (optional, very fast)'),
+          el('p', { class: 'hint' }, 'Free key at ',
+            el('a', { href: 'https://console.groq.com/keys', target: '_blank', rel: 'noopener', class: 'link' }, 'console.groq.com/keys'), '. Groq models show up in "Find models" and can be Main or Backup.'),
+          el('label', {}, 'Groq API key', el('input', { type: 'password', name: 'groqKey', autocomplete: 'off', placeholder: 'gsk_…' })),
+          el('button', { type: 'button', class: 'linkbtn', 'data-act': 'forgetgroq', style: 'margin:-4px 0 8px' }, 'Remove the Groq key from this device'),
+          el('label', {}, 'Model (Groq models start with groq:)', model),
           el('label', {}, 'Backup model (optional, used when the main one is rate-limited or too slow)', el('input', { type: 'text', name: 'backupModel', autocomplete: 'off', list: 'geminiModels', placeholder: 'e.g. a Gemma model from "Find models"' })),
           el('div', { class: 'ai-row' },
             el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'find' }, 'Find models'),
@@ -46,7 +51,7 @@
             el('textarea', { name: 'readRules', rows: 3, maxlength: 1500, placeholder: 'e.g. Ignore Group 2 subjects. Treat "Recorded" lectures as undated. Keep chapter names exactly as written.' })),
           el('label', {}, 'Rules for the chat assistant (optional)',
             el('textarea', { name: 'chatRules', rows: 3, maxlength: 1500, placeholder: 'e.g. I study on Sundays too. Never schedule more than 3 lectures a day. Keep Saturday evenings free.' })),
-          el('p', { class: 'hint' }, 'Privacy: when you press "Read with Gemini AI", the text of your planner is sent to Google. ',
+          el('p', { class: 'hint' }, 'Privacy: when you press "Read with Gemini AI", the text of your planner is sent to the AI service you chose (Google Gemini or Groq). ',
             'The key is saved only in this browser and is not included in Export. Do not publish a copy of this app that has your key in it.'),
           el('div', { class: 'actions' },
             el('button', { type: 'button', class: 'btn ghost', 'data-act': 'cancel' }, 'Cancel'),
@@ -55,22 +60,27 @@
         dlg._f = f; document.body.append(dlg);
       }
       const f = dlg._f, s = settings();
-      f.elements.key.value = s.key; f.elements.model.value = s.model; f.elements.backupModel.value = s.backupModel; f.elements.readRules.value = s.readRules; f.elements.chatRules.value = s.chatRules;
+      f.elements.key.value = s.key; f.elements.groqKey.value = s.groqKey; f.elements.model.value = s.model; f.elements.backupModel.value = s.backupModel; f.elements.readRules.value = s.readRules; f.elements.chatRules.value = s.chatRules;
       const done = v => { dlg.removeEventListener('close', onClose); resolve(v); };
-      const onClose = () => done(settings().key ? true : false);
+      const onClose = () => done(hasKey());
       dlg.addEventListener('close', onClose);
-      f.onsubmit = e => { e.preventDefault(); update({ key: f.elements.key.value.trim(), model: f.elements.model.value.trim() || DEFAULT_MODEL, backupModel: f.elements.backupModel.value.trim(), readRules: f.elements.readRules.value.trim(), chatRules: f.elements.chatRules.value.trim() }); dlg.close(); };
+      f.onsubmit = e => { e.preventDefault(); update({ key: f.elements.key.value.trim(), groqKey: f.elements.groqKey.value.trim(), model: f.elements.model.value.trim() || DEFAULT_MODEL, backupModel: f.elements.backupModel.value.trim(), readRules: f.elements.readRules.value.trim(), chatRules: f.elements.chatRules.value.trim() }); dlg.close(); };
       f.querySelector('[data-act=cancel]').onclick = () => dlg.close();
       const found = f.querySelector('[data-role=found]');
       f.querySelector('[data-act=find]').onclick = async () => {
-        const k = f.elements.key.value.trim();
-        if (!k) { found.textContent = 'Enter your API key first.'; return; }
-        found.textContent = 'Asking Google…';
+        const k = f.elements.key.value.trim(), gk = f.elements.groqKey.value.trim();
+        if (!k && !gk) { found.textContent = 'Enter a Gemini or Groq API key first.'; return; }
+        found.textContent = 'Asking the AI services…';
         try {
-          const all = await listModelsFull(k);
+          let all = [], err = '';
+          if (k) { try { all = await listModelsFull(k); } catch (e) { err = e.message; } }
+          if (gk) { try { all = all.concat(await listGroqModels(gk)); } catch (e) { err = err || e.message; } }
+          if (!all.length) throw new Error(err || 'No models found.');
           const names = all.filter(m => m.chat).map(m => m.name);
           f.querySelector('#geminiModels').replaceChildren(...names.map(n => el('option', { value: n })));
-          const recMain = pickMain(names), recBackup = pickBackup(names);
+          const gNames = names.filter(n => /^groq:/.test(n)), geNames = names.filter(n => !/^groq:/.test(n));
+          let recMain = pickMain(geNames), recBackup = pickBackup(geNames);
+          if (gNames.length) { const gm = pickGroq(gNames); if (gm) { if (recMain) recBackup = recBackup || recMain; recMain = gm; } }
           const curMain = f.elements.model.value.trim();
           if (recMain && (!names.includes(curMain) && curMain !== DEFAULT_MODEL)) f.elements.model.value = recMain;   // a saved voice/image model is replaced
           if (recBackup && !f.elements.backupModel.value.trim()) f.elements.backupModel.value = recBackup;
@@ -80,7 +90,7 @@
             const q = filt.value.trim().toLowerCase();
             const rows = all.filter(m => (showAll || m.chat) && (!q || (m.name + ' ' + m.display).toLowerCase().includes(q)));
             box.replaceChildren(...rows.map(m => el('div', { class: 'ml-row' + (m.chat ? '' : ' off') },
-              el('div', { class: 'ml-name' }, m.display ? `${m.display}` : m.name, el('small', {}, m.display ? m.name : ''), /gemma/i.test(m.name) ? el('span', { class: 'ml-tag' }, 'high daily limit') : null, m.chat ? null : el('span', { class: 'ml-tag' }, 'not for chat')),
+              el('div', { class: 'ml-name' }, m.display ? `${m.display}` : m.name, el('small', {}, m.display ? m.name : ''), /gemma/i.test(m.name) ? el('span', { class: 'ml-tag' }, 'high daily limit') : null, /^groq:/.test(m.name) ? el('span', { class: 'ml-tag' }, 'Groq · very fast') : null, m.chat ? null : el('span', { class: 'ml-tag' }, 'not for chat')),
               m.chat ? el('div', { class: 'ml-btns' },
                 el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.model.value = m.name; } }, 'Main'),
                 el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.backupModel.value = m.name; } }, 'Backup')) : null)),
@@ -96,8 +106,8 @@
       };
       const runPing = async big => {
         const out = f.querySelector('[data-role=ping]'), main = f.elements.model.value.trim() || DEFAULT_MODEL, bk = f.elements.backupModel.value.trim();
-        if (!f.elements.key.value.trim()) { out.hidden = false; out.textContent = 'Enter your API key first.'; return; }
-        update({ key: f.elements.key.value.trim() });
+        if (!f.elements.key.value.trim() && !f.elements.groqKey.value.trim()) { out.hidden = false; out.textContent = 'Enter your API key first.'; return; }
+        update({ key: f.elements.key.value.trim(), groqKey: f.elements.groqKey.value.trim() });
         out.hidden = false; out.textContent = 'Testing… (uses 1 request per model)';
         const lines = [await ping(main, big)];
         if (bk && bk !== main) { out.textContent = lines[0].text + '\nTesting the backup…'; lines.push(await ping(bk, big)); }
@@ -106,6 +116,7 @@
       f.querySelector('[data-act=ping]').onclick = () => runPing(false);
       f.querySelector('[data-act=pingbig]').onclick = () => runPing(true);
       f.querySelector('[data-act=forget]').onclick = () => { if (confirm('Remove your Gemini API key from this device?')) { update({ key: '' }); f.elements.key.value = ''; } };
+      f.querySelector('[data-act=forgetgroq]').onclick = () => { if (confirm('Remove your Groq API key from this device?')) { update({ groqKey: '' }); f.elements.groqKey.value = ''; } };
       dlg.showModal();
     });
   }
@@ -193,6 +204,76 @@
     const t = setTimeout(res, ms);
     if (signal) signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Cancelled', 'AbortError')); });
   });
+
+  const GROQ = 'https://api.groq.com/openai/v1';
+  const isGroq = m => /^groq:/i.test(m || '');
+  const groqId = m => String(m).replace(/^groq:/i, '');
+  const hasKey = () => { const s = settings(); return !!(s.key || s.groqKey); };
+  const keyFor = m => { const s = settings(); return isGroq(m) ? s.groqKey : s.key; };
+  const NOGROQ = /(whisper|tts|orpheus|playai|guard|embed|safeguard|distil-whisper)/i;
+
+  async function listGroqModels(key, signal) {
+    let res;
+    try { res = await fetch(GROQ + '/models', { headers: { Authorization: 'Bearer ' + key }, signal }); }
+    catch (e) { if (e.name === 'AbortError') throw e; throw new Error('Could not reach Groq (no internet, or the browser blocked the request).'); }
+    if (res.status === 401) throw new Error('Groq rejected the API key. Check it in AI settings.');
+    if (!res.ok) throw new Error('Groq error ' + res.status + ' while listing models.');
+    const j = await res.json();
+    return (j.data || []).filter(m => m.active !== false).map(m => ({ name: 'groq:' + m.id, display: 'Groq · ' + m.id, text: true, chat: !NOGROQ.test(m.id) }));
+  }
+  /** best Groq chat model: 70B-class versatile, else any big llama, else the first */
+  function pickGroq(names) {
+    const ok = names.filter(n => !NOGROQ.test(n));
+    const size = n => parseFloat((n.match(/(\d+)b/i) || [0, 0])[1]);
+    return ok.find(n => /llama-3\.3-70b-versatile/i.test(n)) || ok.filter(n => /llama/i.test(n) && !/instant/i.test(n)).sort((a, b) => size(b) - size(a))[0] || ok[0] || '';
+  }
+
+  /** Gemini-style body -> OpenAI chat messages */
+  function toMessages(body) {
+    const msgs = [];
+    const sys = body.systemInstruction ? body.systemInstruction.parts.map(p => p.text).join('\n') : '';
+    if (sys) msgs.push({ role: 'system', content: sys });
+    body.contents.forEach(c => msgs.push({ role: c.role === 'model' ? 'assistant' : 'user', content: c.parts.map(p => p.text || '').join('\n') }));
+    return msgs;
+  }
+
+  /** One Groq chat completion (OpenAI-compatible). Returns the text. */
+  async function generateGroq(s, body, signal, timeoutMs, noRetry) {
+    const limit = timeoutMs || 45000;
+    const gc = body.generationConfig || {};
+    const payload = JSON.stringify({ model: groqId(s.model), messages: toMessages(body), temperature: gc.temperature == null ? 0.2 : gc.temperature, max_tokens: gc.maxOutputTokens || 4096 });
+    for (let attempt = 0; ; attempt++) {
+      const ctl = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, limit);
+      const relay = () => ctl.abort();
+      if (signal) { if (signal.aborted) { clearTimeout(timer); throw new DOMException('Cancelled', 'AbortError'); } signal.addEventListener('abort', relay); }
+      let res, j = null, msg = '';
+      try {
+        res = await fetch(GROQ + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.groqKey }, body: payload, signal: ctl.signal });
+        if (res.ok) j = await res.json();
+        else { try { msg = (await res.json()).error.message || ''; } catch (e) { /* ignore */ } }
+      } catch (e) {
+        if (timedOut) { const te = new Error(`Groq did not answer within ${Math.round(limit / 1000)} seconds, so I stopped waiting.`); te.code = 'TIMEOUT'; throw te; }
+        if (e.name === 'AbortError') throw e;
+        throw new Error('Could not reach Groq. Check your internet connection (or the browser blocked the request).');
+      } finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', relay); }
+      if (res.ok) {
+        const ch = j.choices && j.choices[0];
+        const text = ch && ch.message && ch.message.content;
+        if (!text) throw new Error('Groq returned no answer.');
+        if (ch.finish_reason === 'length') throw new Error('Groq ran out of space for its answer. Try a smaller request.');
+        return text;
+      }
+      if (res.status === 429 && noRetry) { const re = new Error('Groq rate limit reached.'); re.code = 'RATE_LIMIT'; throw re; }
+      if ((res.status === 429 || res.status >= 500) && attempt < 1) { await sleep(3000, signal); continue; }
+      if (res.status === 401 || res.status === 403) throw new Error('Groq rejected the API key. Check it in AI settings. ' + msg);
+      if (res.status === 404) { const e = new Error(`Model "${s.model}" was not found on Groq.`); e.code = 'MODEL_NOT_FOUND'; throw e; }
+      if (res.status === 413) { const e = new Error('This request is too large for Groq\'s per-minute limit.'); e.code = 'RATE_LIMIT'; throw e; }
+      if (res.status === 429) { const re = new Error('Groq rate limit reached. Wait a minute and try again.'); re.code = 'RATE_LIMIT'; throw re; }
+      throw new Error(`Groq error ${res.status}. ${msg}`.trim());
+    }
+  }
 
   /** One generateContent call. Returns the model's text. Gives up after timeoutMs, retries 429/5xx twice. */
   async function generate(s, body, signal, timeoutMs, noRetry) {
@@ -321,6 +402,10 @@
   /** One model, with whatever tricks it needs. Gemma-style models go straight to the plain-prompt form and get the smaller prompt. */
   async function attempt(model, body, opts, noRetry) {
     const s = Object.assign(settings(), { model });
+    if (isGroq(model)) {
+      const lr = opts.lastResort ? Math.max(opts.timeoutMs || 45000, 60000) : opts.timeoutMs;
+      return generateGroq(s, compat(opts.compactBody || body, opts.expect), opts.signal, lr, noRetry);
+    }
     const small = /gemma/i.test(model);
     const b = small && opts.compactBody ? opts.compactBody : body;
     const lastResort = opts.lastResort ? Math.max(opts.timeoutMs || 45000, 60000) : opts.timeoutMs;
@@ -329,12 +414,13 @@
   }
 
   const why = e => e.code === 'TIMEOUT' ? 'did not answer in time' : e.code === 'RATE_LIMIT' ? 'is rate-limited' : e.code === 'MODEL_NOT_FOUND' ? 'was not found' : (String(e.message || 'failed').replace(/\s+/g, ' ').slice(0, 120));
-  const isAuth = e => /API key|refused the request|Add your Gemini/i.test(e.message || '');
+  const isAuth = e => /API key|refused the request|Add your Gemini|Add an API key/i.test(e.message || '');
 
   /** The main model; if it fails for any reason except a bad key or Cancel, the backup model (if one is set). Returns parsed JSON. */
   async function runJSON(body, opts) {
     const s = settings();
-    if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
+    if (!hasKey()) throw new Error('Add an API key (Gemini or Groq) in AI settings first.');
+    if (!keyFor(s.model)) throw new Error(isGroq(s.model) ? 'The Main model is a Groq model but no Groq key is set. Open AI settings.' : 'Add your Gemini API key in AI settings first.');
     const backup = s.backupModel && s.backupModel !== s.model ? s.backupModel : '';
     // with a backup ready, do not wait long for the main model: chat questions give it 20 s
     const mainOpts = backup && (opts.timeoutMs || 45000) <= 60000 ? Object.assign({}, opts, { timeoutMs: Math.min(opts.timeoutMs || 45000, 20000) }) : opts;
@@ -344,7 +430,7 @@
     try { text = await attempt(s.model, body, mainOpts, !!backup); return done(read()); }
     catch (e) {
       if (e.name === 'AbortError' || isAuth(e)) throw e;
-      if (e.code === 'MODEL_NOT_FOUND' && !backup) {
+      if (e.code === 'MODEL_NOT_FOUND' && !backup && !isGroq(s.model)) {
         const best = pickBest(await listModels(s.key, opts.signal));
         if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
         if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
@@ -363,6 +449,15 @@
   async function ping(model, big) {
     const s = settings();
     if (NOCHAT.test(model)) return { ok: false, text: `❌ ${model}: this is a voice / image / video / special model, not a chat model. Pick a Flash, Flash-Lite or Gemma model instead.` };
+    if (isGroq(model)) {
+      if (!s.groqKey) return { ok: false, text: `❌ ${model}: add your Groq key first.` };
+      const f2 = big ? ('Study notes about accounting standards, capital maintenance and financial statements. ').repeat(190) + '\n\n' : '';
+      const t1 = Date.now();
+      try {
+        await generateGroq(Object.assign({}, s, { model }), { contents: [{ role: 'user', parts: [{ text: f2 + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 16 } }, null, 30000, true);
+        return { ok: true, text: `✅ ${model}: answered in ${((Date.now() - t1) / 1000).toFixed(1)} s${big ? ' (about ' + Math.round(f2.length / 4) + ' tokens sent)' : ''}` };
+      } catch (e) { return { ok: false, text: e.code === 'TIMEOUT' ? `⏱️ ${model}: no answer after 30 s` : e.code === 'RATE_LIMIT' ? `❌ ${model}: rate limit / daily quota used up` : `❌ ${model}: ${e.message}` }; }
+    }
     const filler = big ? ('Study notes about accounting standards, capital maintenance and financial statements. ').repeat(190) + '\n\n' : '';
     const base = { contents: [{ role: 'user', parts: [{ text: filler + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 64 } };
     let lastMsg = '', lastStatus = 0, t0 = Date.now();
@@ -389,7 +484,7 @@
   /** text -> tab-separated lines: date, subject, chapter, lecture, duration, of */
   async function extractPlanner(text, opts) {
     const s = settings();
-    if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
+    if (!hasKey()) throw new Error('Add an API key (Gemini or Groq) in AI settings first.');
     const extra = [s.readRules, opts.note].filter(Boolean).join('\n');
     const lines = String(text).split(/\r?\n/).filter(l => l.trim());
     const chunks = [];
@@ -423,5 +518,5 @@
     return runJSON(mk(system), Object.assign({ expect: 'chat' }, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { pickMain, ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
+  window.Gemini = { pickMain, ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey, listGroqModels };
 })();

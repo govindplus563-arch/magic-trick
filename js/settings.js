@@ -72,7 +72,7 @@
     root.append(backupCard(st));
 
     root.append(el('section', { class: 'card settings-card' },
-      el('h2', {}, 'AI assistant (Gemini)'),
+      el('h2', {}, 'AI assistant (Gemini / Groq)'),
       el('p', { class: 'hint' }, Gemini.hasKey() ? 'Your API key is saved on this device.' : 'Add a free API key to read planners with AI and use the ✨ Ask AI chat.'),
       el('div', { class: 'backup-btns' },
         el('button', { class: 'btn outline sm', onclick: () => Gemini.openSettings().then(() => App.render()) }, 'AI settings & rules'))));
