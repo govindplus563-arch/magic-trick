@@ -39,13 +39,14 @@
   function render() {
     tab = currentTab();
     const root = document.getElementById('view');
-    const y = window.scrollY;
+    const y = window.scrollY, top = root.scrollTop;
     root.replaceChildren();
     if (VIEWS[tab]) VIEWS[tab].render(root);
     else root.append(el('div', { class: 'card empty' }, el('strong', {}, TABS.find(t => t.id === tab).label),
       el('br'), `Coming in ${PENDING[tab]}.`));
+    if (Store.saveFailed) root.prepend(el('div', { class: 'warn' }, 'Your browser is blocking storage, so changes will be lost when you close this page. Use Export backup often, or turn off private browsing.'));
     renderNav();
-    window.scrollTo(0, y);
+    window.scrollTo(0, y); root.scrollTop = top;
   }
 
   // ---- add lecture dialog ----
@@ -84,8 +85,15 @@
     rdlg.showModal();
   }
 
-  window.App = { render, openLectureDialog, openReschedule };
-  window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+  let toastTimer;
+  function toast(msg, kind) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast ' + (kind || ''); t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, kind === 'err' ? 7000 : 3500);
+  }
+
+  window.App = { render, openLectureDialog, openReschedule, toast };
+  window.addEventListener('hashchange', () => { window.scrollTo(0, 0); document.getElementById('view').scrollTop = 0; render(); });
   // Re-render when the day rolls over while the app stays open.
   let lastDay = Store.D.today();
   setInterval(() => { const d = Store.D.today(); if (d !== lastDay) { lastDay = d; render(); } }, 60000);

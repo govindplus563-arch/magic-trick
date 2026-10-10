@@ -136,7 +136,7 @@
 
   function normalize(s) {
     const f = { version: 1, examDate: null, examName: 'CA Inter Exam', planStart: null,
-                sampleActive: false, lectures: [], revisions: [], tests: [], testSchedule: [] };
+                sampleActive: false, lectures: [], revisions: [], tests: [], testSchedule: [], lastBackup: null };
     s = Object.assign(f, s && typeof s === 'object' ? s : {});
     ['lectures', 'revisions', 'tests', 'testSchedule'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
     if (s.examDate && !D.isValid(s.examDate)) s.examDate = null;
@@ -155,7 +155,7 @@
 
   function save() {
     const json = JSON.stringify(state);
-    try { localStorage.setItem(KEY, json); } catch (e) { mem = json; }
+    try { localStorage.setItem(KEY, json); Store.saveFailed = false; } catch (e) { mem = json; Store.saveFailed = true; }
   }
 
   const Store = {
@@ -179,6 +179,9 @@
     setExamDate(date) {
       if (!D.isValid(date)) return false;
       state.examDate = date;
+      // a later exam date means more weekly slots for lectures that are already ticked
+      state.lectures.filter(l => l.done && l.doneOn && state.revisions.some(r => r.lectureId === l.id))
+        .forEach(l => addRevisionsFor(state, l, l.doneOn, false));
       save();
       return true;
     },
@@ -265,6 +268,41 @@
     /** Re-number existing lectures (used when a planner is uploaded again). updates: [{id, lecture, of}] */
     updateLectureNumbers(updates) {
       updates.forEach(u => { const l = Store.lectureById(u.id); if (l) { l.lecture = String(u.lecture); l.of = u.of; } });
+      save();
+    },
+
+    // ---- backup ----
+    exportJSON() {
+      state.lastBackup = new Date().toISOString();
+      save();
+      return JSON.stringify({ app: 'ca-study-planner', version: state.version, exportedAt: state.lastBackup, data: state }, null, 2);
+    },
+
+    /** Replaces everything with the backup. Returns { ok, error?, counts?, dropped? } and leaves data untouched on error. */
+    importJSON(text) {
+      let j;
+      try { j = JSON.parse(text); } catch (e) { return { ok: false, error: 'This file is not valid JSON.' }; }
+      const d = j && j.app === 'ca-study-planner' && j.data ? j.data : j;
+      if (!d || typeof d !== 'object' || !Array.isArray(d.lectures)) return { ok: false, error: 'This does not look like a Study Planner backup.' };
+      let dropped = 0;
+      const str = v => typeof v === 'string' && v.trim() !== '';
+      const keep = (arr, ok) => (Array.isArray(arr) ? arr : []).filter(x => { const g = x && typeof x === 'object' && ok(x); if (!g) dropped++; return g; });
+      const s = normalize(d);
+      s.lectures = keep(d.lectures, l => str(l.id) && D.isValid(l.date) && str(l.subject) && str(l.chapter));
+      const ids = new Set(s.lectures.map(l => l.id));
+      s.lectures.forEach(l => { l.done = !!l.done; l.lecture = String(l.lecture == null ? '' : l.lecture); l.duration = Math.max(1, +l.duration || 60); });
+      s.revisions = keep(d.revisions, r => str(r.id) && ids.has(r.lectureId) && D.isValid(r.due) && str(r.kind));
+      s.tests = keep(d.tests, t => str(t.id) && str(t.name) && D.isValid(t.date) && +t.total > 0 && +t.obtained >= 0 && +t.obtained <= +t.total);
+      s.testSchedule = keep(d.testSchedule, t => str(t.id) && str(t.name) && D.isValid(t.date));
+      if (!s.lectures.length && !s.tests.length) return { ok: false, error: 'The backup has no lectures or tests in it.' };
+      s.version = 3;
+      state = s;
+      save();
+      return { ok: true, dropped, counts: { lectures: s.lectures.length, revisions: s.revisions.length, tests: s.tests.length } };
+    },
+
+    eraseAll() {
+      state = normalize({ version: 3, examDate: state.examDate, examName: state.examName });
       save();
     },
 
