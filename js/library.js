@@ -31,6 +31,25 @@
   const SECTION = /^\s*(\d{1,2}(?:\.\d{1,2})*\.?)\s+([A-Z][A-Z0-9 ,&'()\/–-]{7,})\s*$/;  // "4.  STATUS OF ACCOUNTING STANDARDS"
   const norm = l => l.replace(/\s+/g, ' ').trim();
 
+  const SMALL = new Set(['of', 'to', 'and', 'for', 'the', 'in', 'on', 'a', 'an', 'as', 'at', 'by']);
+  const titleCase = t => t.toLowerCase().split(' ').map((w, i) => (i && SMALL.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  /** "CHAPTER 2 / FRAMEWORK FOR PREPARATION ..." on the cover page -> "Chapter 2 - Framework For Preparation ..." ('' if it cannot tell). */
+  function titleFromCover(text) {
+    const lines = String(text || '').split('\n').map(l => norm(l.replace(/\t/g, ' '))).filter(Boolean).slice(0, 16);
+    const stop = lines.findIndex(l => /LEARNING OUTCOMES|CHAPTER OVERVIEW|^After studying|^CONTENTS?$/i.test(l));
+    const head = lines.slice(0, stop > 0 ? stop : 6);
+    let n = '', kind = 'Chapter'; const out = [];
+    head.forEach(l => {
+      let m;
+      if ((m = l.match(/^(CHAPTER|MODULE|UNIT)\s*(\d+)?$/i))) { kind = titleCase(m[1]); if (m[2]) n = m[2]; return; }
+      if (/^\d{1,2}$/.test(l) && !n) { n = l; return; }
+      if (/^[A-Z0-9 ,&'()\/:–-]{4,}$/.test(l) || out.length) out.push(l);
+    });
+    const t = out.join(' ').replace(/\s+/g, ' ').trim();
+    if (t.length < 6 || t.length > 150) return '';
+    return (n ? `${kind} ${n} - ` : '') + titleCase(t);
+  }
+
   /** Strips running headers/footers, reads the printed page label (e.g. "2.6") and the subject from the header. */
   function prepare(rawPages) {
     const lines = rawPages.map(t => String(t || '').split('\n'));
@@ -92,6 +111,8 @@
       chunksOf(pg.text, state).forEach(c => rows.push({ bookId: id, page: i + 1, label: pg.label, heading: c.heading, text: c.text }));
     });
     if (!rows.length) throw new Error('No readable text found. This file may be scanned images (photos of pages). Use a text-based PDF.');
+    const dup = (await list()).find(b => b.pages === rawPages.length && b.chars === chars);
+    if (dup) return { duplicate: true, of: dup.title || dup.name, pages: rawPages.length, empty };   // same text already in the Library
     for (let i = 0; i < rows.length; i += 2000) {
       const t = db.transaction('chunks', 'readwrite'); const st = t.objectStore('chunks');
       rows.slice(i, i + 2000).forEach(r => st.add(r)); await done(t);
@@ -99,11 +120,25 @@
     const finalSubject = subject || prep.subject;
     const keepFile = !!(file && /\.pdf$/i.test(name));
     const t = db.transaction(keepFile ? ['books', 'files'] : ['books'], 'readwrite');
-    t.objectStore('books').put({ id, name, title: prep.title(name), subject: finalSubject, pages: rawPages.length, empty, chars, size: file ? file.size : 0, hasFile: keepFile, added: new Date().toISOString() });
+    t.objectStore('books').put({ id, name, title: titleFromCover((prep.pages.find(pg => pg.text && pg.text.length > 40) || {}).text) || prep.title(name), titled: true, subject: finalSubject, pages: rawPages.length, empty, chars, size: file ? file.size : 0, hasFile: keepFile, added: new Date().toISOString() });
     if (keepFile) t.objectStore('files').put(file, id);
     await done(t);
     index = null;
     return { id, pages: rawPages.length, empty, subject: finalSubject };
+  }
+
+  /** One-off: give books added earlier a proper title taken from their cover page. */
+  async function fixTitles() {
+    const db = await open(); let changed = 0;
+    for (const b of await list()) {
+      if (b.titled) continue;
+      const first = (await chunksOfBook(b.id)).sort((x, y) => x.page - y.page);
+      const p0 = first.length ? first[0].page : 0;
+      const t = titleFromCover(first.filter(c => c.page === p0).map(c => c.text).join('\n'));
+      const tx = db.transaction('books', 'readwrite');
+      tx.objectStore('books').put(Object.assign({}, b, { title: t || b.title, titled: true })); await done(tx); changed++;
+    }
+    return changed;
   }
 
   async function remove(id) {
@@ -169,6 +204,7 @@
         const n = ix.df.get(w) || 0, idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
         sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * d.len / ix.avg));
       });
+      if (!d.heading) sc *= 0.8;
       if (sc > 0) scored.push({ book: d.book, page: d.page, label: d.label, heading: d.heading, text: d.text, score: sc, matched: hit, terms: q.length });
     });
     scored.sort((x, y) => y.score - x.score);
@@ -214,5 +250,5 @@
 
   const stats = async () => { const b = await list(); return { books: b.length, pages: b.reduce((s, x) => s + x.pages, 0), chars: b.reduce((s, x) => s + x.chars, 0) }; };
 
-  window.Library = { cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
+  window.Library = { fixTitles, cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
 })();

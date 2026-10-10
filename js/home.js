@@ -37,9 +37,9 @@
     const t = D.today();
     const wrap = el('section', { class: 'countdown card' });
     wrap.append(el('a', { class: 'gear-btn', href: '#settings', title: 'Settings', 'aria-label': 'Settings' }, '⚙️'));
-    wrap.append(el('button', { class: 'theme-btn', type: 'button', title: Theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode',
-      'aria-label': Theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode',
-      onclick: () => { Theme.set(Theme.isDark() ? 'light' : 'dark'); App.render(); } }, Theme.isDark() ? '☀️' : '🌙'));
+    const mode = Theme.get(), nextMode = { auto: 'dark', dark: 'light', light: 'auto' }[mode];
+    wrap.append(el('button', { class: 'theme-btn', type: 'button', title: `Theme: ${mode} (tap for ${nextMode})`, 'aria-label': `Theme is ${mode}. Tap to switch to ${nextMode}.`,
+      onclick: () => { Theme.set(nextMode); App.render(); } }, { auto: '🌓', dark: '🌙', light: '☀️' }[mode]));
     const hasDate = !!st.examDate;
     const left = hasDate ? D.diff(t, st.examDate) : 0;
     const start = st.planStart && st.planStart < t ? st.planStart : t;

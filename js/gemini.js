@@ -136,25 +136,36 @@
     if (signal) signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Cancelled', 'AbortError')); });
   });
 
-  /** One generateContent call. Returns the model's text. Retries 429/5xx twice. */
-  async function generate(s, body, signal) {
+  /** One generateContent call. Returns the model's text. Gives up after timeoutMs, retries 429/5xx twice. */
+  async function generate(s, body, signal, timeoutMs) {
     const url = `${API}/models/${encodeURIComponent(s.model)}:generateContent`;
     const payload = JSON.stringify(body);
+    const limit = timeoutMs || 45000;
     for (let attempt = 0; ; attempt++) {
-      let res;
-      try { res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.key }, body: payload, signal }); }
-      catch (e) { if (e.name === 'AbortError') throw e; throw new Error('Could not reach Gemini. Check your internet connection.'); }
+      const ctl = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, limit);
+      const relay = () => ctl.abort();
+      if (signal) { if (signal.aborted) { clearTimeout(timer); throw new DOMException('Cancelled', 'AbortError'); } signal.addEventListener('abort', relay); }
+      let res, j = null, msg = '';
+      try {
+        res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.key }, body: payload, signal: ctl.signal });
+        if (res.ok) j = await res.json();
+        else { try { msg = (await res.json()).error.message || ''; } catch (e) { /* ignore */ } }
+      } catch (e) {
+        if (timedOut) throw new Error(`Gemini did not answer within ${Math.round(limit / 1000)} seconds, so I stopped waiting. Try again, or pick a lighter model in AI settings → Find models.`);
+        if (e.name === 'AbortError') throw e;
+        throw new Error('Could not reach Gemini. Check your internet connection.');
+      } finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', relay); }
       if (res.ok) {
-        const j = await res.json();
         const cand = j.candidates && j.candidates[0];
         const part = cand && cand.content && cand.content.parts && cand.content.parts.map(p => p.text || '').join('');
         if (!part) throw new Error(j.promptFeedback && j.promptFeedback.blockReason ? 'Gemini declined this request (' + j.promptFeedback.blockReason + ').' : 'Gemini returned no answer.');
         if (cand.finishReason === 'MAX_TOKENS') throw new Error('Gemini ran out of space for its answer. Try a smaller request.');
         return part;
       }
-      let msg = '';
-      try { msg = (await res.json()).error.message || ''; } catch (e) { /* ignore */ }
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(4000 * (attempt + 1), signal); continue; }
+      if (res.status === 400 && /thinking/i.test(msg)) { const e = new Error(msg); e.code = 'BAD_THINKING'; throw e; }
       if (res.status === 400 && /api key/i.test(msg)) throw new Error('Gemini rejected the API key. Check it in AI settings.');
       if (res.status === 401 || res.status === 403) throw new Error('Gemini refused the request (check the API key and that the Generative Language API is enabled). ' + msg);
       if (res.status === 404) { const e = new Error(`Model "${s.model}" was not found.`); e.code = 'MODEL_NOT_FOUND'; throw e; }
@@ -163,19 +174,27 @@
     }
   }
 
+  /** Answers fastest: asks the model not to "think" first. Models that insist on thinking get the plain request. */
+  async function quick(s, body, opts) {
+    const fast = JSON.parse(JSON.stringify(body));
+    fast.generationConfig = Object.assign({}, fast.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
+    try { return await generate(s, fast, opts.signal, opts.timeoutMs); }
+    catch (e) { if (e.code === 'BAD_THINKING') return generate(s, body, opts.signal, opts.timeoutMs); throw e; }
+  }
+
   /** generate() + automatic switch to a working model when the saved one is retired. Returns parsed JSON. */
   async function runJSON(body, opts) {
     const s = settings();
     if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
     let text;
-    try { text = await generate(s, body, opts.signal); }
+    try { text = await quick(s, body, opts); }
     catch (e) {
       if (e.code !== 'MODEL_NOT_FOUND') throw e;
       const best = pickBest(await listModels(s.key, opts.signal));
       if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
       if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
       s.model = best; update({ model: best });
-      text = await generate(s, body, opts.signal);
+      text = await quick(s, body, opts);
     }
     try { return JSON.parse(text); } catch (e) { throw new Error('Gemini sent an answer that could not be understood. Try again.'); }
   }
@@ -196,7 +215,7 @@
       const arr = await runJSON({
         contents: [{ role: 'user', parts: [{ text: prompt(chunks[i], prev, i, chunks.length, extra) }] }],
         generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA }
-      }, opts);
+      }, Object.assign({ timeoutMs: 120000 }, opts));
       if (!Array.isArray(arr)) throw new Error('Gemini sent an answer that could not be understood. Try again.');
       arr.forEach(r => {
         out.push([tidy(r.date), tidy(r.subject), tidy(r.chapter), tidy(r.lecture),

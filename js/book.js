@@ -48,7 +48,7 @@
       wrap.append(canvas, textBox);
 
       const toc = el('select', { 'aria-label': 'Contents' }, el('option', { value: '' }, 'Contents…'));
-      Library.outline(id).then(o => { if (alive()) o.forEach(h => toc.append(el('option', { value: h.page }, `${h.label ? h.label + '  ' : ''}${h.heading}`.slice(0, 70)))); });
+      Library.outline(id).then(o => { if (alive()) o.forEach(h => toc.append(el('option', { value: h.page }, `${h.label ? h.label + '  ' : ''}${h.heading}`.slice(0, 110)))); });
       toc.addEventListener('change', () => { if (toc.value) go(+toc.value); toc.value = ''; });
 
       async function draw() {
@@ -74,7 +74,7 @@
           if (my === token) textBox.textContent = t || 'No text on this page (it may be an image or a blank page).';
         }
       }
-      const go = n => { page = Math.max(1, Math.min(total, n)); wrap.scrollTop = 0; draw(); };
+      const go = n => { page = Math.max(1, Math.min(total, n)); wrap.scrollTop = 0; return draw(); };
       const prev = el('button', { class: 'btn outline sm', type: 'button', 'aria-label': 'Previous page', onclick: () => go(page - 1) }, '‹');
       const next = el('button', { class: 'btn outline sm', type: 'button', 'aria-label': 'Next page', onclick: () => go(page + 1) }, '›');
       input.addEventListener('change', () => go(parseInt(input.value, 10) || 1));
@@ -95,15 +95,15 @@
       const run = async () => {
         const text = q.value.trim(); if (!text) { results.replaceChildren(); return; }
         const hits = await Library.search(text, { bookId: id, k: 8 });
-        results.replaceChildren(...(hits.length ? hits.map(h => el('button', { class: 'bk-hit', type: 'button', onclick: () => { go(h.page); wrap.scrollIntoView({ block: 'start' }); } },
-          el('b', {}, `Page ${h.label || h.page}${h.heading ? ' · ' + h.heading.slice(0, 50) : ''}`), el('span', {}, h.text.replace(/\n/g, ' ').slice(0, 140) + '…'))) : [el('p', { class: 'hint' }, 'Nothing found. Try other words.')]));
+        results.replaceChildren(...(hits.length ? hits.map(h => el('button', { class: 'bk-hit', type: 'button', onclick: () => { go(h.page).then(() => wrap.scrollIntoView({ block: 'start', behavior: 'smooth' })); } },
+          el('b', {}, `Page ${h.label || h.page}${h.heading ? ' · ' + h.heading : ''}`), el('span', {}, h.text.replace(/\n/g, ' ').slice(0, 140) + '…'))) : [el('p', { class: 'hint' }, 'Nothing found. Try other words.')]));
       };
       q.addEventListener('keydown', e => { if (e.key === 'Enter') run(); }); q.addEventListener('change', run);
 
       body.replaceChildren(title, sub,
         el('div', { class: 'bk-bar' }, prev, input, el('span', { class: 'pg-of' }, `/ ${total}`), next, label),
         el('div', { class: 'bk-bar' }, toc, viewBtn, hasPdf ? zoomBtn : null),
-        wrap, actions, q, results);
+        wrap, actions, q, results, el('div', { style: 'height:96px' }));
       draw();
     })().catch(e => { if (root.isConnected) body.replaceChildren(el('div', { class: 'err' }, e.message || 'Could not open this book.')); });
   }

@@ -27,7 +27,7 @@
       const subjDl = el('datalist', { id: 'mbSubjects' }), chapDl = el('datalist', { id: 'mbChapters' });
       const err = el('div', { class: 'err', hidden: true });
       f.append(el('h2', { 'data-role': 'title' }, 'Log a mistake'),
-        el('div', { class: 'row2' },
+        el('div', { class: 'stack' },
           el('label', {}, 'Subject', el('input', { name: 'subject', type: 'text', list: 'mbSubjects', maxlength: 60, required: true })),
           el('label', {}, 'Chapter', el('input', { name: 'chapter', type: 'text', list: 'mbChapters', maxlength: 120 }))),
         subjDl, chapDl,
@@ -94,8 +94,8 @@
   }
 
   /* ---------- review session: one card at a time ---------- */
-  function startReview() {
-    const queue = Store.dueMistakes().map(m => m.id);
+  function startReview(practice) {
+    const queue = (practice ? Store.get().mistakes.filter(m => !Store.isMastered(m)).sort((a, b) => a.due.localeCompare(b.due)) : Store.dueMistakes()).map(m => m.id);
     if (!queue.length) { App.toast('Nothing due for review today.'); return; }
     if (!reviewDlg) { reviewDlg = el('dialog', { class: 'sheet' }); document.body.append(reviewDlg); }
     let i = 0, right = 0, weak = 0;
@@ -138,9 +138,10 @@
         el('div', {}, el('b', { class: due.length ? 'red' : '' }, String(due.length)), el('span', {}, 'to review today')),
         el('div', {}, el('b', {}, String(mastered)), el('span', {}, 'mastered'))),
       el('div', { class: 'backup-btns' },
-        el('button', { class: 'btn primary', type: 'button', disabled: !due.length, onclick: startReview }, due.length ? `Start review (${due.length})` : 'Nothing due today'),
+        due.length ? el('button', { class: 'btn primary', type: 'button', onclick: () => startReview(false) }, `Start review (${due.length})`)
+          : el('button', { class: 'btn primary', type: 'button', disabled: all.length === mastered, onclick: () => startReview(true) }, all.length === mastered ? 'All mastered' : `Practice now (${all.length - mastered})`),
         el('button', { class: 'btn outline', type: 'button', onclick: () => openAdd() }, '+ Log mistake')),
-      el('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Each mistake comes back after 1, 3, 7, 14 and 30 days. Say "Still weak" and it restarts from tomorrow.')));
+      el('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Each mistake comes back after 1, 3, 7, 14 and 30 days. Say "Still weak" and it restarts from tomorrow. New mistakes are due tomorrow, but "Practice now" lets you go through them today.')));
     if (!all.length) { root.append(el('div', { class: 'empty card', style: 'margin-top:14px' }, 'No mistakes saved yet.', el('br'), 'While revising, tap “📕 Log mistake” on any lecture or revision card to save what you got wrong.')); return; }
 
     const subs = [...new Set(all.map(m => m.subject).filter(Boolean))].sort();

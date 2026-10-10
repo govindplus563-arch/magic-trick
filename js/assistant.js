@@ -281,7 +281,10 @@
     busy = true; sendBtn.disabled = true; input.value = '';
     bubble('user', text);
     history.push({ role: 'user', text });
-    const wait = bubble('bot', el('span', { class: 'typing' }, 'Thinking…'));
+    const ctl = new AbortController(), t0 = Date.now();
+    const clock = el('span', { class: 'typing' }, 'Thinking… 0s');
+    const wait = bubble('bot', clock, el('button', { class: 'btn ghost sm', type: 'button', style: 'margin-left:8px', onclick: () => ctl.abort() }, 'Cancel'));
+    const tick = setInterval(() => { clock.textContent = `Thinking… ${Math.round((Date.now() - t0) / 1000)}s`; }, 1000);
     let notice = '';
     try {
       let hits = [];
@@ -295,7 +298,7 @@
           let used = 0; hits = hits.filter(h => (used += h.text.length) <= 6500);
         }
       } catch (e) { hits = []; }   // the Library is optional: never block the chat
-      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { onNotice: m => { notice = m; } });
+      const out = await Gemini.chatTurn(systemPrompt(hits), history.slice(-10), SCHEMA, { onNotice: m => { notice = m; }, signal: ctl.signal, timeoutMs: 45000 });
       const reply = String(out.reply || '').trim() || 'Okay.';
       const res = resolve(Array.isArray(out.actions) ? out.actions : []);
       history.push({ role: 'model', text: reply + (res.items.length ? ' [proposed: ' + res.items.map(i => i.text).join('; ') + ']' : '') });
@@ -305,8 +308,8 @@
       if (res.items.length || res.notes.length) wait.append(proposal(res, text));
     } catch (e) {
       history.pop();
-      wait.className = 'msg bot err'; wait.replaceChildren(e.message || 'Something went wrong.');
-    } finally { busy = false; sendBtn.disabled = false; list.scrollTop = list.scrollHeight; input.focus(); }
+      wait.className = 'msg bot err'; wait.replaceChildren(e.name === 'AbortError' ? 'Cancelled. Nothing was changed.' : (e.message || 'Something went wrong.'));
+    } finally { clearInterval(tick); busy = false; sendBtn.disabled = false; list.scrollTop = list.scrollHeight; input.focus(); }
   }
 
   /** Shows exactly which book passages were given to Gemini, so you can check the answer against the book. */

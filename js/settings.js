@@ -58,13 +58,14 @@
     const mb = n => (n / 1048576).toFixed(1);
     const draw = async () => {
       let books = [];
-      try { books = await Library.list(); } catch (e) { box.replaceChildren(el('div', { class: 'err' }, e.message)); return; }
+      try { if (await Library.fixTitles()) books = []; books = await Library.list(); } catch (e) { box.replaceChildren(el('div', { class: 'err' }, e.message)); return; }
       dl.replaceChildren(...names().map(n => el('option', { value: n })));
       box.replaceChildren(...(books.length ? books.map(b => el('div', { class: 'lib-row' },
         el('div', { class: 'lib-main' }, el('div', { class: 'lib-name' }, b.title || b.name),
-          el('div', { class: 'lib-meta' }, `${b.subject || 'No subject'} · ${b.pages} pages · ${mb(b.chars)} MB of text${b.empty ? ` · ${b.empty} pages had no text` : ''}`)),
-        el('a', { class: 'btn outline sm', href: `#book/${b.id}/1` }, '📖 Open'),
-        el('button', { class: 'x', type: 'button', 'aria-label': 'Remove ' + b.name, onclick: async () => { if (confirm(`Remove "${b.name}" from the Library?`)) { await Library.remove(b.id); draw(); } } }, '×')))
+          el('div', { class: 'lib-meta' }, `${b.subject || 'No subject'} · ${b.pages} pages · ${mb(b.chars)} MB of text${b.empty ? ` · ${b.empty} pages had no text` : ''}`),
+          el('div', { class: 'lib-meta' }, b.name),
+          el('button', { class: 'linkbtn', type: 'button', 'aria-label': 'Remove ' + (b.title || b.name), onclick: async () => { if (confirm(`Remove "${b.title || b.name}" from the Library? You can add it again later.`)) { await Library.remove(b.id); draw(); } } }, 'Remove')),
+        el('a', { class: 'btn outline sm', href: `#book/${b.id}/1` }, '📖 Open')))
         : [el('p', { class: 'hint', style: 'margin:0' }, 'No books yet. Add text-based PDFs of your textbooks and Acts.')]));
     };
     // Reads every chosen file in turn. Works for one file, many files or a whole folder.
@@ -82,7 +83,8 @@
           say(`${tag} - reading…`);
           const pages = await FileText.readPages(f, (p, n) => say(`${tag} - page ${p} of ${n}`), { tabGap: 14 });
           say(`${tag} - saving…`);
-          await Library.add(f.name, subject, pages, f);
+          const r = await Library.add(f.name, subject, pages, f);
+          if (r.duplicate) { skipped++; continue; }
           added++;
           if (added === 1 && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
         } catch (e) { failed.push(`${f.name}: ${e.message || 'could not be read'}`); }
