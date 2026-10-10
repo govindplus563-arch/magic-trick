@@ -292,7 +292,7 @@ h2.big { font-size: 26px; }
 .ai-hint { background: var(--soft); border: 1px solid var(--ai-border); border-radius: 10px; padding: 8px 10px; color: var(--soft-text); }
 
 /* Backup + toast + warnings */
-.backup { margin-top: 22px; padding: 14px; }
+.backup { margin-top: 14px; padding: 14px; }
 .backup h2 { font-size: 16px; margin-bottom: 4px; }
 .backup .hint { margin: 0 0 10px; }
 .backup.stale { border: 1px solid var(--warn-border); background: var(--warn-bg); }
@@ -362,3 +362,15 @@ input[hidden], .sheet input[hidden] { display: none !important; }
 .seg { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 99px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
 .seg.on { background: var(--indigo-bg); border-color: var(--indigo-bg); color: #fff; font-weight: 600; }
 select, input, textarea { color-scheme: inherit; }
+
+/* settings page + gear */
+.gear-btn { position: absolute; top: 10px; left: 10px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); font-size: 17px; line-height: 36px; text-align: center; text-decoration: none; }
+.gear-btn:hover { background: var(--hover-bg); }
+.fab[hidden] { display: none; }
+.page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.page-head h2 { margin: 0; }
+.back { color: var(--indigo); font-weight: 600; text-decoration: none; padding: 6px 10px 6px 0; }
+.settings-card { padding: 14px; margin-top: 14px; }
+.settings-card h2 { font-size: 16px; margin-bottom: 4px; }
+.settings-card .hint { margin: 0 0 10px; }
+.backup-nudge { display: block; margin-top: 18px; padding: 10px 12px; border-radius: 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--text); font-size: 13px; text-decoration: none; }

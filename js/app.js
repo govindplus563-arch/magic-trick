@@ -19,19 +19,20 @@
     { id: 'tests', label: 'Tests' }, { id: 'backlog', label: 'Backlog' }
   ];
   const PENDING = {};
-  const VIEWS = { home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
+  const VIEWS = { settings: SettingsView, home: HomeView, revision: RevisionView, progress: ProgressView, tests: TestsView, backlog: BacklogView };
 
   let tab = 'home';
 
   function currentTab() {
     const h = location.hash.replace('#', '');
-    return TABS.some(t => t.id === h) ? h : 'home';
+    return h === 'settings' || TABS.some(t => t.id === h) ? h : 'home';
   }
 
   function renderNav() {
     const nav = document.getElementById('nav');
+    const cur = tab === 'settings' ? 'home' : tab;
     nav.replaceChildren(...TABS.map(t => el('a', {
-      href: '#' + t.id, class: 'nav-item' + (t.id === tab ? ' active' : ''), 'aria-current': t.id === tab ? 'page' : null
+      href: '#' + t.id, class: 'nav-item' + (t.id === cur ? ' active' : ''), 'aria-current': t.id === cur ? 'page' : null
     }, ico(ICONS[t.id]), el('span', {}, t.label),
       t.id === 'backlog' && Store.backlog().count ? el('b', { class: 'nav-badge' }, String(Store.backlog().count)) : null)));
   }
@@ -42,9 +43,10 @@
     const y = window.scrollY, top = root.scrollTop;
     root.replaceChildren();
     if (VIEWS[tab]) VIEWS[tab].render(root);
-    else root.append(el('div', { class: 'card empty' }, el('strong', {}, TABS.find(t => t.id === tab).label),
+    else root.append(el('div', { class: 'card empty' }, el('strong', {}, (TABS.find(t => t.id === tab) || {}).label),
       el('br'), `Coming in ${PENDING[tab]}.`));
     if (Store.saveFailed) root.prepend(el('div', { class: 'warn' }, 'Your browser is blocking storage, so changes will be lost when you close this page. Use Export backup often, or turn off private browsing.'));
+    document.getElementById('chatFab').hidden = tab === 'settings';
     renderNav();
     window.scrollTo(0, y); root.scrollTop = top;
   }
