@@ -3,7 +3,7 @@
  * are sent to Gemini, so answers come from your books and a request costs the same as any other. */
 (function () {
   const DB = 'studyPlannerLib';
-  const STOP = new Set('a an and are as at be by for from has have how in is it its of on or that the this to was what when where which who why will with you your i my me do does did can could should would not no yes if then than so such these those there their they them we our us he she his her also into about'.split(' '));
+  const STOP = new Set('explain give answer solve please tell show describe discuss write following using under a an and are as at be by for from has have how in is it its of on or that the this to was what when where which who why will with you your i my me do does did can could should would not no yes if then than so such these those there their they them we our us he she his her also into about'.split(' '));
   let dbp = null, index = null;
 
   const open = () => dbp || (dbp = new Promise((res, rej) => {
@@ -161,7 +161,12 @@
   /* ---- search: BM25 over the chunks ---- */
   const tokens = text => {
     const out = [];
-    (String(text).toLowerCase().match(/[a-z0-9]+(?:\([a-z0-9]+\))*/g) || []).forEach(w => {
+    let t = String(text).toLowerCase();
+    // standards and sections stay in one piece: "AS 13", "as-13", "as13", "Ind AS 115", "SA 200" -> as13, indas115, sa200
+    t = t.replace(/\b(indian\s+)?accounting\s+standards?\s*[-:.]?\s*(\d{1,3})\b/g, (m, ind, n) => { out.push((ind ? 'indas' : 'as') + n); return ' '; });
+    t = t.replace(/\b(ind\s*as|as|ias|ifrs|sa|ap)\s*[-:.]?\s*(\d{1,3})\b/g, (m, a, n) => { out.push(a.replace(/\s+/g, '') + n); return ' '; });
+    t = t.replace(/([a-z])(\d)/g, '$1 $2').replace(/(\d)([a-z])/g, '$1 $2');
+    (t.match(/[a-z0-9]+(?:\([a-z0-9]+\))*/g) || []).forEach(w => {
       if (STOP.has(w)) return;
       if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1);
       out.push(w);
@@ -184,6 +189,14 @@
       total += tk.length;
       return { book: books.get(c.bookId), page: c.page, label: c.label || '', heading: c.heading || '', text: fixText(c.text), tf, len: tk.length };
     });
+    // which "Illustration N" does each chunk belong to? (carried forward until the next illustration or a new section)
+    const lastOf = new Map();
+    docs.forEach(d => {
+      const prev = lastOf.get(d.book.id) || { illus: null, heading: '' };
+      const m = d.text.match(/(?:^|\n)\s*Illustration\s*(?:No\.?\s*)?(\d{1,3})\b/i);
+      d.illus = m ? +m[1] : (d.heading === prev.heading ? prev.illus : null);
+      lastOf.set(d.book.id, { illus: d.illus, heading: d.heading });
+    });
     index = { docs, df, avg: docs.length ? total / docs.length : 1, books };
     return index;
   }
@@ -204,13 +217,15 @@
     if (!q.length) return [];
     const N = ix.docs.length, k1 = 1.4, b = 0.75;
     const idfOf = w => { const n = ix.df.get(w) || 0; return Math.log(1 + (N - n + 0.5) / (n + 0.5)); };
-    const idfTotal = q.reduce((a, w) => a + idfOf(w), 0) || 1;   // words that appear nowhere count fully: they must be covered too
+    const words = q.filter(w => !/^[\d.,]+$/.test(w));            // amounts and years in a question do not have to appear in the book
+    const covWords = words.length ? words : q;
+    const idfTotal = covWords.reduce((a, w) => a + idfOf(w), 0) || 1;   // words that appear nowhere count fully: they must be covered too
     const scored = [];
     pool.forEach(d => {
       let sc = 0, hit = 0, cov = 0;
       q.forEach(w => {
         const f = d.tf.get(w); if (!f) return;
-        hit++; cov += idfOf(w);
+        hit++; if (covWords.includes(w)) cov += idfOf(w);
         const n = ix.df.get(w) || 0, idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
         sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * d.len / ix.avg));
       });
@@ -226,6 +241,40 @@
       if (out.length >= (opts.k || 5)) break;
     }
     return out;
+  }
+
+  /** "Illustration 3" of the standard/chapter the student named. hint = their words (e.g. "as13").
+   *  Cuts the illustration out of the book text itself, from its "Illustration N" line to the next illustration or section,
+   *  so it works however the text was split. Returns up to 3 candidates (different books/sections), best match first. */
+  async function findIllustration(n, hint) {
+    const ix = await load();
+    const want = [...new Set(tokens(hint))].filter(w => !/^\d+$/.test(w) && w !== 'illustration' && w !== 'no');
+    if (!ix.byBook) {                                   // book text in reading order, remembering where every chunk starts
+      ix.byBook = new Map();
+      ix.docs.forEach(d => { const g = ix.byBook.get(d.book.id) || { book: d.book, text: '', marks: [] }; g.marks.push({ at: g.text.length, d }); g.text += d.text + '\n'; ix.byBook.set(d.book.id, g); });
+    }
+    const found = [];
+    ix.byBook.forEach(g => {
+      const re = /(?:^|\n)[ \t]*Illustration[ \t]*(?:No\.?[ \t]*)?(\d{1,3})\b[^\n]*/gi;
+      const starts = []; let m;
+      while ((m = re.exec(g.text))) starts.push({ i: m.index + (g.text[m.index] === '\n' ? 1 : 0), n: +m[1] });
+      starts.forEach((st, k) => {
+        if (st.n !== n) return;
+        let end = k + 1 < starts.length ? starts[k + 1].i : g.text.length;
+        const startMark = g.marks.filter(x => x.at <= st.i).pop();
+        const nextSection = g.marks.find(x => x.at > st.i && x.d.heading !== startMark.d.heading);   // a new section ends it
+        if (nextSection) end = Math.min(end, nextSection.at);
+        end = Math.min(end, st.i + 5000);
+        const body = g.text.slice(st.i, end).trim();
+        const titleTok = new Set(tokens((g.book.title || '') + ' ' + (g.book.name || '') + ' ' + startMark.d.heading));
+        const bodyTok = new Set(tokens(body.slice(0, 1500)));
+        let sc = 0; want.forEach(w => { if (titleTok.has(w)) sc += 3; if (bodyTok.has(w)) sc += 1; });
+        found.push({ book: g.book, page: startMark.d.page, label: startMark.d.label, heading: startMark.d.heading, text: body, score: sc, matched: 1, terms: 1, coverage: 1, words: want, illus: n });
+      });
+    });
+    found.sort((a, b) => b.score - a.score);
+    const top = found.length ? found[0].score : 0;
+    return (top > 0 ? found.filter(x => x.score >= top * 0.5) : found).slice(0, 3);
   }
 
   /** Which of the given subject names does this text talk about? (file name or question) */
@@ -260,5 +309,5 @@
 
   const stats = async () => { const b = await list(); return { books: b.length, pages: b.reduce((s, x) => s + x.pages, 0), chars: b.reduce((s, x) => s + x.chars, 0) }; };
 
-  window.Library = { setSubject, fixTitles, cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
+  window.Library = { findIllustration, setSubject, fixTitles, cite, getBook, getFile, pageText, outline, labelOf, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
 })();
