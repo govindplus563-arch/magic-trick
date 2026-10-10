@@ -264,8 +264,11 @@
         const startMark = g.marks.filter(x => x.at <= st.i).pop();
         const nextSection = g.marks.find(x => x.at > st.i && x.d.heading !== startMark.d.heading);   // a new section ends it
         if (nextSection) end = Math.min(end, nextSection.at);
-        end = Math.min(end, st.i + 5000);
-        const body = g.text.slice(st.i, end).trim();
+        end = Math.min(end, st.i + 4500);
+        let body = g.text.slice(st.i, end).trim();
+        // the illustration ends where the next numbered section, summary or exercise block begins
+        const lines = body.split('\n'); const cut = lines.findIndex((l, k) => k > 2 && (/^\s*\d{1,2}(?:\.\d{1,2})*\.?\s+[A-Z][A-Z0-9 ,&'()\/–-]{7,}\s*$/.test(l) || /^\s*(SUMMARY|TEST YOUR KNOWLEDGE|ANSWERS?|HINTS?|THEORETICAL QUESTIONS|PRACTICAL QUESTIONS)\b/i.test(l)));
+        if (cut > 0) body = lines.slice(0, cut).join('\n').trim();
         const titleTok = new Set(tokens((g.book.title || '') + ' ' + (g.book.name || '') + ' ' + startMark.d.heading));
         const bodyTok = new Set(tokens(body.slice(0, 1500)));
         let sc = 0; want.forEach(w => { if (titleTok.has(w)) sc += 3; if (bodyTok.has(w)) sc += 1; });

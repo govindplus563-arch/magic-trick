@@ -74,7 +74,7 @@
   }
 
   const illustrationNote = hits => (hits && hits.length && hits[0].illus)
-    ? `The student asked for Illustration ${hits[0].illus}. The excerpts below are the illustration(s) with that number found in their books (the book and standard are named in each heading). Use the one that matches the chapter or standard they named. Show the problem briefly, then give the solution step by step with the working, then explain the reasoning in simple words. If more than one book fits and you cannot tell which, ask which one, naming the books.`
+    ? `The student asked for Illustration ${hits[0].illus}. The excerpts below are the illustration(s) with that number found in their books (the book and standard are named in each heading). Use the one that matches the chapter or standard they named. Show the problem briefly, then give the solution step by step with the working, then explain the reasoning in simple words. The excerpt can run a little past the end of the illustration: use only the part that belongs to it. If more than one book fits and you cannot tell which, ask which one, naming the books.`
     : '';
 
   function systemPrompt(hits, compact) {
