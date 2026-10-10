@@ -26,13 +26,13 @@
     }
     root.append(el('h3', { class: 'sub-h' }, 'Missed Lectures'));
     if (!b.lectures.length) root.append(el('div', { class: 'empty card slim' }, 'No missed lectures.'));
-    b.lectures.forEach(l => root.append(card('lecture', l, `${l.subject} - ${l.chapter}`, `Lec ${l.lecture} · ${D.dur(l.duration)}`, l.date)));
+    b.lectures.forEach(l => root.append(card('lecture', l, `${l.subject} - ${l.chapter}`, `${Store.lecLabel(l)} · ${D.dur(l.duration)}`, l.date)));
 
     root.append(el('h3', { class: 'sub-h' }, 'Missed Revisions'));
     if (!b.revisions.length) root.append(el('div', { class: 'empty card slim' }, 'No missed revisions.'));
     b.revisions.forEach(r => {
       const l = Store.lectureById(r.lectureId);
-      root.append(card('revision', r, `${l.subject} - ${l.chapter} Revision`, `${r.label} revision · Lec ${l.lecture}`, r.due));
+      root.append(card('revision', r, `${l.subject} - ${l.chapter} Revision`, `${r.label} revision · ${Store.lecLabel(l)}`, r.due));
     });
   }
 

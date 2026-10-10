@@ -91,8 +91,10 @@
 
   function parseStructured(text, existing, opts) {
     const dur = Math.max(1, Math.round((opts && opts.defaultDuration) || 90));
-    const seen = new Set((existing || []).map(key));
-    const seq = [], rows = [], errors = [];
+    const kk = r => [r.date, r.subject.toLowerCase(), r.chapter.toLowerCase()].join('|');
+    const have = new Map((existing || []).map(l => [kk(l), l]));
+    const seq = [], rows = [], errors = [], updates = [];
+    const seen = new Set();
     let subject = null, dupes = 0;
     String(text).replace(/^﻿/, '').split(/\r?\n/).forEach((raw, i) => {
       const cells = raw.split('\t').map(c => c.trim()).filter(Boolean);
@@ -105,34 +107,77 @@
       if (subject && isInt && di >= 2) {
         const mid = cells.slice(1, di);
         const chapter = mid.find(c => !/^\d+$/.test(c)) || '';
-        seq.push({ t: 'mid', line, raw, subject, sno: cells[0], chapter, date: cells[di] });
+        seq.push({ t: 'mid', line, raw, subject, sno: cells[0], chapter, date: cells[di], tot: +(mid.filter(c => /^\d+$/.test(c))[1] || 0) });
       } else if (subject && isInt && cells.length >= 3) {
         errors.push({ line, text: raw, reason: 'no readable date found in this row' });
         seq.push({ t: 'other' });
+      } else if (subject && cells.length === 1 && /^\d+$/.test(cells[0])) {
+        seq.push({ t: 'tot', n: +cells[0], subject });   // the merged "Total Lectures" cell, printed between two rows
       } else if (subject && cells.length === 1 && !/\bGroup\s*\d+\s*$/i.test(raw) && !/\bPage\s+\d+/i.test(raw)) {
         seq.push({ t: 'frag', text: cells[0] });
       } else seq.push({ t: 'other' });
     });
+    const kept = {}, markers = {};
+    const nonTot = (i, d) => { for (i += d; seq[i] && seq[i].t === 'tot'; i += d); return seq[i]; };
     seq.forEach((e, i) => {
+      if (e.t === 'tot') {
+        const k = kept[e.subject] || 0;
+        (markers[e.subject] = markers[e.subject] || []).push({ n: e.n, lo: k - 1, hi: k });
+        return;
+      }
       if (e.t !== 'mid') return;
       let chapter = e.chapter;
       if (!chapter) {   // chapter wrapped onto the line above and/or below this row
         const parts = [];
-        const b = seq[i - 1], a = seq[i + 1];
+        const b = nonTot(i, -1), a = nonTot(i, 1);
         if (b && b.t === 'frag' && !b.used) { b.used = true; parts.push(b.text); }
         if (a && a.t === 'frag' && !a.used) { a.used = true; parts.push(a.text); }
         chapter = parts.join(' ');
       }
       try {
         if (!chapter) throw new Error('chapter name not found for this row');
-        const r = { line: e.line, date: parseDate(e.date), subject: e.subject, chapter, lecture: parseLecture(e.sno), duration: dur };
-        if (seen.has(key(r))) { dupes++; return; }
-        seen.add(key(r)); rows.push(r);
+        parseLecture(e.sno);   // validates the S No
+        const r = { line: e.line, date: parseDate(e.date), subject: e.subject, chapter, duration: dur, sno: e.sno, tot: e.tot };
+        if (seen.has(kk(r))) { dupes++; return; }
+        seen.add(kk(r)); rows.push(r);
+        const idx = kept[e.subject] = (kept[e.subject] || 0);
+        kept[e.subject]++;
+        if (e.tot) (markers[e.subject] = markers[e.subject] || []).push({ n: e.tot, lo: idx, hi: idx });
       } catch (err) { errors.push({ line: e.line, text: e.raw, reason: err.message }); }
     });
-    rows.sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
+    // Lecture number = position inside its chapter group, e.g. 8 of 9.
+    // The planner's merged "Total Lectures" cell (printed once per group) says how big each group is, so groups are
+    // cut from it. If it does not add up for a subject, fall back to runs of identical chapter names.
+    const bySubject = {};
+    rows.forEach(r => (bySubject[r.subject] = bySubject[r.subject] || []).push(r));
+    Object.values(bySubject).forEach(list => {
+      const groups = [];
+      let pos = 0, ok = true;
+      (markers[list[0].subject] || []).forEach(m => {
+        if (!ok) return;
+        if (m.lo < pos || m.hi >= pos + m.n || pos + m.n > list.length) { ok = false; return; }
+        groups.push([pos, pos + m.n]); pos += m.n;
+      });
+      if (!ok || pos !== list.length || !groups.length) {
+        groups.length = 0;
+        for (let i = 0; i < list.length;) {
+          let j = i;
+          while (j < list.length && list[j].chapter === list[i].chapter) j++;
+          groups.push([i, j]); i = j;
+        }
+      }
+      groups.forEach(([s0, e0]) => { for (let k = s0; k < e0; k++) { list[k].lecture = String(k - s0 + 1); list[k].of = e0 - s0; } });
+    });
+    // Lectures already saved (e.g. from an earlier upload): just fix their numbering instead of adding duplicates.
+    const fresh = [];
+    rows.forEach(r => {
+      const old = have.get(kk(r));
+      if (old) { if (old.lecture !== r.lecture || old.of !== r.of) updates.push({ id: old.id, lecture: r.lecture, of: r.of }); dupes++; }
+      else fresh.push(r);
+    });
+    fresh.sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
     errors.sort((a, b) => a.line - b.line);
-    return { rows, errors, dupes, structured: true };
+    return { rows: fresh, errors, dupes, updates, structured: true };
   }
 
   /** -> { rows:[{line,date,subject,chapter,lecture,duration}], errors:[{line,text,reason}], dupes:n } */
@@ -237,12 +282,13 @@
     results.append(el('div', { class: 'chips' },
       el('span', { class: 'chip ok' }, `${rows.length} ready`),
       dupes ? el('span', { class: 'chip' }, `${dupes} already saved`) : null,
+      current.updates && current.updates.length ? el('span', { class: 'chip ok' }, `${current.updates.length} lecture numbers will be updated`) : null,
       errors.length ? el('span', { class: 'chip bad' }, `${errors.length} unreadable`) : null));
     if (rows.length) {
       results.append(el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
         el('thead', {}, el('tr', {}, ['Date', 'Subject', 'Chapter', 'Lec', 'Time'].map(h => el('th', {}, h)))),
         el('tbody', {}, rows.map(r => el('tr', {}, el('td', {}, D.fmtShort(r.date)), el('td', {}, r.subject),
-          el('td', {}, r.chapter), el('td', {}, r.lecture), el('td', {}, D.dur(r.duration))))))));
+          el('td', {}, r.chapter), el('td', {}, r.lecture + (r.of ? '/' + r.of : '')), el('td', {}, D.dur(r.duration))))))));
     }
     if (errors.length) {
       results.append(el('div', { class: 'errlist' }, el('strong', {}, 'These rows were not read and will be skipped:'),
@@ -250,7 +296,7 @@
           el('div', { class: 'errwhy' }, `Line ${e.line}: ${e.reason}`),
           el('code', {}, e.text.length > 120 ? e.text.slice(0, 120) + '…' : e.text)))));
     }
-    if (!rows.length && !errors.length) results.append(el('div', { class: 'hint' }, 'Nothing new to add.'));
+    if (!rows.length && !errors.length && !(current.updates || []).length) results.append(el('div', { class: 'hint' }, 'Nothing new to add.'));
     refreshSave();
   }
 
@@ -259,17 +305,18 @@
     return pastSel.value === 'skip' && !pastRow.hidden ? current.rows.filter(r => r.date >= D.today()) : current.rows;
   }
   function refreshSave() {
-    const n = rowsToSave().length;
-    saveBtn.disabled = !n;
-    saveBtn.textContent = n ? `Save ${n} lecture${n === 1 ? '' : 's'}` : 'Save';
+    const n = rowsToSave().length, u = current && current.updates ? current.updates.length : 0;
+    saveBtn.disabled = !n && !u;
+    saveBtn.textContent = n ? `Save ${n} lecture${n === 1 ? '' : 's'}` : u ? 'Update numbers' : 'Save';
   }
 
   function save() {
-    const rows = rowsToSave();
-    if (!rows.length) return;
+    const rows = rowsToSave(), upd = (current && current.updates) || [];
+    if (!rows.length && !upd.length) return;
     const st = Store.get();
     if (st.sampleActive && clearSample.checked) Store.clearSample();
-    Store.addLectures(rows, { pastDone: !pastRow.hidden && pastSel.value === 'done' });
+    if (upd.length) Store.updateLectureNumbers(upd);
+    if (rows.length) Store.addLectures(rows, { pastDone: !pastRow.hidden && pastSel.value === 'done' });
     dlg.close();
     App.render();
   }

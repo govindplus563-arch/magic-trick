@@ -82,7 +82,7 @@
     return el('label', { class: 'lecture' + (l.done ? ' done' : '') },
       el('div', { class: 'lec-text' },
         el('div', { class: 'lec-title' }, title),
-        el('div', { class: 'lec-meta' }, `Lec ${l.lecture}  ·  ${D.dur(l.duration)}`)),
+        el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}  ·  ${D.dur(l.duration)}`)),
       cb, el('span', { class: 'cbx', 'aria-hidden': 'true' }));
   }
 

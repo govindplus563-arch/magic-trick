@@ -24,7 +24,7 @@
       el('div', { class: 'rev-row' },
         el('div', { class: 'rev-text' },
           el('div', { class: 'lec-title' }, `${l.subject}: ${l.chapter}`),
-          el('div', { class: 'lec-meta' }, `Lec ${l.lecture}${n}`)),
+          el('div', { class: 'lec-meta' }, `${Store.lecLabel(l)}${n}`)),
         el('button', { class: 'btn sm ' + (r.done ? 'donebtn' : 'teal'),
           onclick: () => { Store.toggleRevision(r.id); App.render(); } }, r.done ? '✓ Done' : 'Done')));
   }

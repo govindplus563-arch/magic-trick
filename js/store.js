@@ -205,7 +205,7 @@
         const done = !!(opts && opts.pastDone && r.date < t);
         state.lectures.push({
           id: uid(), date: r.date, subject: r.subject, chapter: r.chapter, lecture: String(r.lecture),
-          duration: r.duration, done, doneOn: done ? r.date : null
+          duration: r.duration, done, doneOn: done ? r.date : null, of: r.of || undefined
         });
       });
       const dates = state.lectures.map(x => x.date).sort();
@@ -257,6 +257,15 @@
       const revDue = revs.filter(r => r.due <= t);
       return { subjects, total, done, overall: total ? Math.round(done / total * 100) : 0,
         revDone: revDue.filter(r => r.done).length, revDue: revDue.length };
+    },
+
+    /** "Lec 8/8" when the planner gives the chapter's lecture count, else "Lec 12". */
+    lecLabel(l) { return 'Lec ' + l.lecture + (l.of ? '/' + l.of : ''); },
+
+    /** Re-number existing lectures (used when a planner is uploaded again). updates: [{id, lecture, of}] */
+    updateLectureNumbers(updates) {
+      updates.forEach(u => { const l = Store.lectureById(u.id); if (l) { l.lecture = String(u.lecture); l.of = u.of; } });
+      save();
     },
 
     lectureById(id) { return state.lectures.find(l => l.id === id); },
