@@ -472,3 +472,14 @@ select, input, textarea { color-scheme: inherit; }
 .src-open { margin-top: 6px; display: inline-block; text-decoration: none; position: static; }
 .bk-q { width: 100%; display: block; margin-top: 8px; }
 .lec-actions .act { height: 38px; white-space: nowrap; display: inline-flex; align-items: center; }
+
+/* model picker */
+.model-list { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; margin: 6px 0 10px; padding: 4px 8px; }
+.ml-filter { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--text); font-size: 14px; margin-top: 6px; }
+.ml-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+.ml-row:first-child { border-top: 0; }
+.ml-row.off { opacity: .55; }
+.ml-name { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.ml-name small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.ml-tag { display: inline-block; margin-left: 6px; font-size: 10.5px; font-weight: 700; color: var(--teal); background: var(--teal-soft); border-radius: 99px; padding: 1px 7px; }
+.ml-btns { display: flex; gap: 6px; flex: none; }

@@ -33,6 +33,8 @@
           el('div', { class: 'ai-row' },
             el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'find' }, 'Find models'),
             el('span', { class: 'hint', 'data-role': 'found', style: 'margin:0' }, 'Lists the models your key can use.')),
+          el('input', { type: 'search', class: 'ml-filter', placeholder: 'Filter the model list (e.g. gemma)', 'aria-label': 'Filter models', hidden: true }),
+          el('div', { class: 'model-list', 'data-role': 'models', hidden: true }),
           el('datalist', { id: 'geminiModels' }),
           el('label', {}, 'Rules for reading planners (optional)',
             el('textarea', { name: 'readRules', rows: 3, maxlength: 1500, placeholder: 'e.g. Ignore Group 2 subjects. Treat "Recorded" lectures as undated. Keep chapter names exactly as written.' })),
@@ -60,13 +62,26 @@
         if (!k) { found.textContent = 'Enter your API key first.'; return; }
         found.textContent = 'Asking Google…';
         try {
-          const names = await listModels(k);
+          const all = await listModelsFull(k);
+          const names = all.filter(m => m.text).map(m => m.name);
           f.querySelector('#geminiModels').replaceChildren(...names.map(n => el('option', { value: n })));
-          const best = pickBest(names);
+          const best = pickBest(names), bk = pickBackup(names);
           if (best && !names.includes(f.elements.model.value.trim()) && f.elements.model.value.trim() !== DEFAULT_MODEL) f.elements.model.value = best;
-          const bk = pickBackup(names);
           if (bk && !f.elements.backupModel.value.trim()) f.elements.backupModel.value = bk;
-          found.textContent = names.length ? `${names.length} models available. Main: ${best || 'none'}. Backup: ${bk || 'none found'}. Tap a box to pick another.` : 'No models available for this key.';
+          const box = f.querySelector('[data-role=models]'), filt = f.querySelector('.ml-filter');
+          let showAll = false;
+          const draw = () => {
+            const q = filt.value.trim().toLowerCase();
+            const rows = all.filter(m => (showAll || m.text) && (!q || (m.name + ' ' + m.display).toLowerCase().includes(q)));
+            box.replaceChildren(...rows.map(m => el('div', { class: 'ml-row' + (m.text ? '' : ' off') },
+              el('div', { class: 'ml-name' }, m.display ? `${m.display}` : m.name, el('small', {}, m.display ? m.name : ''), /gemma/i.test(m.name) ? el('span', { class: 'ml-tag' }, 'high daily limit') : null, m.text ? null : el('span', { class: 'ml-tag' }, 'not for chat')),
+              m.text ? el('div', { class: 'ml-btns' },
+                el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.model.value = m.name; } }, 'Main'),
+                el('button', { type: 'button', class: 'btn outline sm', onclick: () => { f.elements.backupModel.value = m.name; } }, 'Backup')) : null)),
+              el('button', { type: 'button', class: 'linkbtn', style: 'color:var(--indigo)', onclick: () => { showAll = !showAll; draw(); } }, showAll ? 'Hide models that cannot chat' : `Show all ${all.length} (including ${all.length - names.length} that cannot chat)`));
+          };
+          filt.hidden = false; box.hidden = false; filt.oninput = draw; draw();
+          found.textContent = names.length ? `${names.length} models can chat (of ${all.length}). Tap Main or Backup next to the one you want, then Save.` : 'No models available for this key.';
         } catch (e) { found.textContent = e.message; }
       };
       f.querySelector('[data-act=forget]').onclick = () => { update({ key: '' }); f.elements.key.value = ''; };
@@ -75,22 +90,25 @@
   }
 
   /** Models this key can call for generateContent, e.g. ['gemini-3.5-flash', ...]. */
-  async function listModels(key, signal) {
+  /** Every model the key can see: [{ name, display, text }] where text = can answer prompts (generateContent). */
+  async function listModelsFull(key, signal) {
     const out = []; let token = '';
-    for (let page = 0; page < 5; page++) {
+    for (let page = 0; page < 10; page++) {
       let res;
-      try { res = await fetch(`${API}/models?pageSize=200` + (token ? '&pageToken=' + encodeURIComponent(token) : ''), { headers: { 'x-goog-api-key': key }, signal }); }
+      try { res = await fetch(`${API}/models?pageSize=1000` + (token ? '&pageToken=' + encodeURIComponent(token) : ''), { headers: { 'x-goog-api-key': key }, signal }); }
       catch (e) { if (e.name === 'AbortError') throw e; throw new Error('Could not reach Gemini. Check your internet connection.'); }
       if (!res.ok) {
         let m = ''; try { m = (await res.json()).error.message; } catch (e) { /* ignore */ }
         throw new Error(res.status === 400 || res.status === 403 ? 'Gemini rejected the API key. Check it in AI settings.' : `Could not list models (error ${res.status}). ${m}`.trim());
       }
       const j = await res.json();
-      (j.models || []).forEach(m => { if ((m.supportedGenerationMethods || []).includes('generateContent')) out.push(String(m.name).replace(/^models\//, '')); });
+      (j.models || []).forEach(m => out.push({ name: String(m.name).replace(/^models\//, ''), display: m.displayName || '', text: (m.supportedGenerationMethods || []).includes('generateContent') }));
       token = j.nextPageToken || ''; if (!token) break;
     }
     return out;
   }
+  /** Names of the models that can answer prompts. */
+  async function listModels(key, signal) { return (await listModelsFull(key, signal)).filter(m => m.text).map(m => m.name); }
 
   /** Best general-purpose Flash model: stable before preview, then highest version, no lite/image/audio variants. */
   function pickBest(names) {
@@ -288,5 +306,5 @@
     return runJSON(mk(system), Object.assign({}, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { settings, openSettings, extractPlanner, chatTurn, listModels, pickBest, pickBackup, hasKey: () => !!settings().key };
+  window.Gemini = { settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
 })();
