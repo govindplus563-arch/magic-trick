@@ -46,6 +46,50 @@
   }
 
 
+  function libraryCard() {
+    const box = el('div', { class: 'lib-list' }), status = el('div', { class: 'hint', style: 'margin:8px 0 0', hidden: true });
+    const dl = el('datalist', { id: 'libSubjects' });
+    const subj = el('input', { type: 'text', list: 'libSubjects', placeholder: 'Subject (e.g. Taxation)', maxlength: 60, 'aria-label': 'Subject for the books you add' });
+    const names = () => [...new Set(Store.get().lectures.map(l => l.subject))].sort();
+    const file = el('input', { type: 'file', multiple: true, hidden: true, accept: '.pdf,.docx,.txt,application/pdf' });
+    const say = (m, bad) => { status.hidden = false; status.className = bad ? 'err' : 'hint'; status.style.margin = '8px 0 0'; status.textContent = m; };
+    const mb = n => (n / 1048576).toFixed(1);
+    const draw = async () => {
+      let books = [];
+      try { books = await Library.list(); } catch (e) { box.replaceChildren(el('div', { class: 'err' }, e.message)); return; }
+      dl.replaceChildren(...names().map(n => el('option', { value: n })));
+      box.replaceChildren(...(books.length ? books.map(b => el('div', { class: 'lib-row' },
+        el('div', { class: 'lib-main' }, el('div', { class: 'lib-name' }, b.name),
+          el('div', { class: 'lib-meta' }, `${b.subject || 'No subject'} · ${b.pages} pages · ${mb(b.chars)} MB of text${b.empty ? ` · ${b.empty} pages had no text` : ''}`)),
+        el('button', { class: 'x', type: 'button', 'aria-label': 'Remove ' + b.name, onclick: async () => { if (confirm(`Remove "${b.name}" from the Library?`)) { await Library.remove(b.id); draw(); } } }, '×')))
+        : [el('p', { class: 'hint', style: 'margin:0' }, 'No books yet. Add text-based PDFs of your textbooks and Acts.')]));
+    };
+    file.addEventListener('change', async () => {
+      const files = [...file.files]; file.value = '';
+      if (!files.length) return;
+      let busy = true;
+      try {
+        for (const f of files) {
+          const subject = subj.value.trim() || Library.guessSubject(f.name, names());
+          if (!subject && !confirm(`No subject chosen for "${f.name}". Add it without a subject? (Answers search all books when the subject is unknown.)`)) continue;
+          if (f.size > 80 * 1048576 && !confirm(`"${f.name}" is ${mb(f.size)} MB. Reading it may take a few minutes. Continue?`)) continue;
+          say(`Reading ${f.name}…`);
+          const pages = await FileText.readPages(f, (p, n) => say(`Reading ${f.name}: page ${p} of ${n}…`));
+          say(`Saving ${f.name}…`);
+          const r = await Library.add(f.name, subject, pages);
+          say(`Added ${f.name}${subject ? ' (' + subject + ')' : ''}: ${r.pages} pages${r.empty ? `, ${r.empty} had no text (scanned?)` : ''}.`);
+          await draw();
+        }
+      } catch (e) { say(e.message || 'Could not add that file.', true); }
+      busy = false;
+    });
+    draw();
+    return el('section', { class: 'card settings-card' },
+      el('h2', {}, '📚 Library (textbooks & Acts)'),
+      el('p', { class: 'hint' }, 'Books stay on this phone. When you ask the chat a question, the app searches them here and sends only the few matching passages to Gemini, so answers come from your books with page numbers.'),
+      box, el('div', { class: 'lib-add' }, subj, dl, el('button', { class: 'btn outline sm', type: 'button', onclick: () => file.click() }, '+ Add books'), file), status);
+  }
+
   function render(root) {
     const st = Store.get();
     root.append(el('div', { class: 'page-head' },
@@ -58,6 +102,8 @@
       el('div', { class: 'uploads' },
         el('button', { class: 'upbtn', onclick: () => Planner.open() }, TestsView.upIcon(), 'Upload Planner'),
         el('button', { class: 'upbtn', onclick: () => TestsView.openTimetable() }, TestsView.upIcon(), 'Upload Test Timetable'))));
+
+    root.append(libraryCard());
 
     root.append(backupCard(st));
 

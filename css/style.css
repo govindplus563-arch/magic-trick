@@ -421,3 +421,20 @@ select, input, textarea { color-scheme: inherit; }
 .actions.center { justify-content: center; margin-top: 12px; }
 .red { color: var(--red); }
 .sheet select { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--text); font-size: 16px; }
+
+/* library + sources + chat tables */
+.lib-list { margin-bottom: 10px; }
+.lib-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.lib-row:first-child { border-top: 0; }
+.lib-main { flex: 1; min-width: 0; }
+.lib-name { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.lib-meta { font-size: 12px; color: var(--muted); }
+.lib-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lib-add input[type=text] { flex: 1; min-width: 140px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); color: var(--text); font: inherit; font-size: 14px; }
+.sources { margin-top: 8px; font-size: 12.5px; }
+.sources summary { cursor: pointer; color: var(--indigo); font-weight: 600; }
+.src { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); }
+.src-h { font-weight: 700; font-size: 12px; }
+.src-t { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.chat-table { margin: 6px 0; max-height: none; }
+.chat-table .tbl { min-width: 0; font-size: 12.5px; }

@@ -58,13 +58,16 @@
     return lines.filter(l => l.trim()).join('\n');
   }
 
-  async function fromPdf(file) {
+  /** Text of every PDF page, in reading order, with TAB between table columns. */
+  async function pdfPages(file, onProgress) {
     await loadScript('vendor/pdf.min.js');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-    const out = [];
+    const pages = [];
     for (let p = 1; p <= pdf.numPages; p++) {
-      const items = (await (await pdf.getPage(p)).getTextContent()).items.filter(i => i.str && i.str.trim());
+      if (onProgress) onProgress(p, pdf.numPages);
+      const page = await pdf.getPage(p);
+      const items = (await page.getTextContent()).items.filter(i => i.str && i.str.trim());
       // group text runs into visual lines by y position, then order each line left-to-right
       const rows = [];
       items.forEach(it => {
@@ -72,6 +75,7 @@
         const row = rows.find(r => Math.abs(r.y - y) < h * 0.5);
         if (row) row.items.push(it); else rows.push({ y, items: [it] });
       });
+      const out = [];
       rows.sort((a, b) => b.y - a.y).forEach(r => {
         r.items.sort((a, b) => a.transform[4] - b.transform[4]);
         let s = '', prevEnd = null;
@@ -82,10 +86,27 @@
         });
         out.push(s);
       });
+      pages.push(out.join('\n'));
+      if (page.cleanup) page.cleanup();
     }
-    const text = out.join('\n');
+    return pages;
+  }
+
+  async function fromPdf(file) {
+    const text = (await pdfPages(file)).join('\n');
     if (!text.trim()) throw new Error('This PDF has no selectable text (it may be a scan or image). Export it from the original app, or paste the text instead.');
     return text;
+  }
+
+  /** Any supported file -> array of page texts (real pages for PDF, ~3000 character blocks for other files). */
+  async function readPages(file, onProgress) {
+    const ext = ((file.name || '').toLowerCase().split('.').pop());
+    if (ext === 'pdf') return pdfPages(file, onProgress);
+    const text = await read(file);
+    const pages = []; let cur = '';
+    text.split('\n').forEach(line => { cur += line + '\n'; if (cur.length >= 3000) { pages.push(cur); cur = ''; } });
+    if (cur.trim()) pages.push(cur);
+    return pages;
   }
 
   async function read(file) {
@@ -98,5 +119,5 @@
     return file.text();   // csv, tsv, txt, anything else treated as text
   }
 
-  window.FileText = { read, ACCEPT: '.csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,.docx,.pdf,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+  window.FileText = { read, readPages, ACCEPT: '.csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,.docx,.pdf,text/csv,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
 })();
