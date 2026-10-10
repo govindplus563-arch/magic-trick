@@ -59,7 +59,7 @@
       try { books = await Library.list(); } catch (e) { box.replaceChildren(el('div', { class: 'err' }, e.message)); return; }
       dl.replaceChildren(...names().map(n => el('option', { value: n })));
       box.replaceChildren(...(books.length ? books.map(b => el('div', { class: 'lib-row' },
-        el('div', { class: 'lib-main' }, el('div', { class: 'lib-name' }, b.name),
+        el('div', { class: 'lib-main' }, el('div', { class: 'lib-name' }, b.title || b.name),
           el('div', { class: 'lib-meta' }, `${b.subject || 'No subject'} · ${b.pages} pages · ${mb(b.chars)} MB of text${b.empty ? ` · ${b.empty} pages had no text` : ''}`)),
         el('button', { class: 'x', type: 'button', 'aria-label': 'Remove ' + b.name, onclick: async () => { if (confirm(`Remove "${b.name}" from the Library?`)) { await Library.remove(b.id); draw(); } } }, '×')))
         : [el('p', { class: 'hint', style: 'margin:0' }, 'No books yet. Add text-based PDFs of your textbooks and Acts.')]));
@@ -74,10 +74,10 @@
           if (!subject && !confirm(`No subject chosen for "${f.name}". Add it without a subject? (Answers search all books when the subject is unknown.)`)) continue;
           if (f.size > 80 * 1048576 && !confirm(`"${f.name}" is ${mb(f.size)} MB. Reading it may take a few minutes. Continue?`)) continue;
           say(`Reading ${f.name}…`);
-          const pages = await FileText.readPages(f, (p, n) => say(`Reading ${f.name}: page ${p} of ${n}…`));
+          const pages = await FileText.readPages(f, (p, n) => say(`Reading ${f.name}: page ${p} of ${n}…`), { tabGap: 14 });
           say(`Saving ${f.name}…`);
           const r = await Library.add(f.name, subject, pages);
-          say(`Added ${f.name}${subject ? ' (' + subject + ')' : ''}: ${r.pages} pages${r.empty ? `, ${r.empty} had no text (scanned?)` : ''}.`);
+          say(`Added ${f.name}${r.subject ? ' (' + r.subject + ')' : ''}: ${r.pages} pages${r.empty ? `, ${r.empty} had no text (scanned?)` : ''}.`);
           await draw();
         }
       } catch (e) { say(e.message || 'Could not add that file.', true); }

@@ -25,39 +25,82 @@
     return (await wrap(db.transaction('books').objectStore('books').getAll())).sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Break a page into ~900 character pieces on line boundaries. Tabs (table columns) become " | ". */
-  function chunksOf(pageText) {
-    const out = []; let cur = '';
-    pageText.replace(/\t/g, ' | ').split('\n').forEach(line => {
-      if (!line.trim()) return;
-      cur += (cur ? '\n' : '') + line;
-      if (cur.length >= 900) { out.push(cur); cur = ''; }
+  const HEAD_A = /^\s*(\d{1,2}\.\d{1,3})\s+[A-Z][A-Z0-9 &,'-]{4,}\s*$/;            // "2.6   ADVANCED ACCOUNTING"
+  const HEAD_B = /^\s*[A-Z][A-Z0-9 &,'-]{4,}?\s+(\d{1,2}\.\d{1,3})\s*$/;            // "ADVANCED ACCOUNTING   2.7"
+  const SECTION = /^\s*(\d{1,2}(?:\.\d{1,2})*\.?)\s+([A-Z][A-Z0-9 ,&'()\/–-]{7,})\s*$/;  // "4.  STATUS OF ACCOUNTING STANDARDS"
+  const norm = l => l.replace(/\s+/g, ' ').trim();
+
+  /** Strips running headers/footers, reads the printed page label (e.g. "2.6") and the subject from the header. */
+  function prepare(rawPages) {
+    const lines = rawPages.map(t => String(t || '').split('\n'));
+    const seen = new Map();
+    lines.forEach(ls => { new Set(ls.map(l => norm(l).replace(/\d+/g, '#')).filter(Boolean)).forEach(k => seen.set(k, (seen.get(k) || 0) + 1)); });
+    const repeat = rawPages.length >= 8 ? Math.max(4, Math.ceil(rawPages.length * 0.4)) : Infinity;
+    const subjects = new Map();
+    const pages = lines.map(ls => {
+      let label = '';
+      const kept = ls.filter((l, i) => {
+        const edge = i < 3 || i >= ls.length - 3;
+        const m = edge && (l.replace(/\t/g, ' ').match(HEAD_A) || l.replace(/\t/g, ' ').match(HEAD_B));
+        if (m) {
+          label = m[1];
+          const nm = norm(l.replace(/\t/g, ' ').replace(m[1], '')); if (nm) subjects.set(nm, (subjects.get(nm) || 0) + 1);
+          return false;
+        }
+        if (edge && /©|Institute of Chartered Accountants/i.test(l)) return false;
+        if (edge && seen.get(norm(l).replace(/\d+/g, '#')) >= repeat) return false;
+        return true;
+      });
+      return { text: kept.join('\n'), label };
     });
-    if (cur.trim()) out.push(cur);
+    const top = [...subjects.entries()].sort((a, b) => b[1] - a[1])[0];
+    const title = s => s.replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').replace(/^\s*\d+\s*[-_.]?\s*/, '').replace(/\s+-\s+/g, ' - ').replace(/\s+/g, ' ').trim();
+    return { pages, subject: top && top[1] >= 2 ? top[0].toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : '', title };
+  }
+
+  /** Break a page into ~900 character pieces on line boundaries and remember the current section heading. */
+  function chunksOf(pageText, state) {
+    const out = []; let cur = '';
+    const flush = () => { if (cur.trim()) out.push({ text: cur, heading: state.heading }); cur = ''; };
+    pageText.split('\n').forEach(raw => {
+      const cells = raw.split('\t').map(c => c.trim()).filter(Boolean);
+      const isTable = cells.length >= 3 && cells.filter(c => c.length >= 12).length >= 2;
+      const line = isTable ? cells.join(' | ') : cells.join(' ');
+      if (!line.trim()) return;
+      const h = line.match(SECTION);
+      if (h && line.length < 120) { flush(); state.heading = (h[1] + ' ' + h[2]).replace(/\s+/g, ' ').trim(); state.justSet = true; }
+      else if (state.justSet && /^[A-Z][A-Z0-9 ,&'()\/–-]{2,60}$/.test(line)) state.heading += ' ' + line;   // long headings wrap onto a second line
+      else state.justSet = false;
+      cur += (cur ? '\n' : '') + line;
+      if (cur.length >= 900) flush();
+    });
+    flush();
     return out;
   }
 
-  /** pages: array of page texts. Returns { id, pages, empty } where empty = pages with no text (scans). */
-  async function add(name, subject, pages) {
+  /** rawPages: array of page texts. Returns { id, pages, empty, subject } where empty = pages with no text (scans). */
+  async function add(name, subject, rawPages) {
     const db = await open();
+    const prep = prepare(rawPages);
     const id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     let chars = 0, empty = 0;
-    const rows = [];
-    pages.forEach((t, i) => {
-      if (!t || t.trim().length < 20) { empty++; return; }
-      chars += t.length;
-      chunksOf(t).forEach(c => rows.push({ bookId: id, page: i + 1, text: c }));
+    const rows = [], state = { heading: '' };
+    prep.pages.forEach((pg, i) => {
+      if (!pg.text || pg.text.trim().length < 20) { empty++; return; }
+      chars += pg.text.length;
+      chunksOf(pg.text, state).forEach(c => rows.push({ bookId: id, page: i + 1, label: pg.label, heading: c.heading, text: c.text }));
     });
     if (!rows.length) throw new Error('No readable text found. This file may be scanned images (photos of pages). Use a text-based PDF.');
     for (let i = 0; i < rows.length; i += 2000) {
       const t = db.transaction('chunks', 'readwrite'); const st = t.objectStore('chunks');
       rows.slice(i, i + 2000).forEach(r => st.add(r)); await done(t);
     }
+    const finalSubject = subject || prep.subject;
     const t = db.transaction('books', 'readwrite');
-    t.objectStore('books').put({ id, name, subject: subject || '', pages: pages.length, empty, chars, added: new Date().toISOString() });
+    t.objectStore('books').put({ id, name, title: prep.title(name), subject: finalSubject, pages: rawPages.length, empty, chars, added: new Date().toISOString() });
     await done(t);
     index = null;
-    return { id, pages: pages.length, empty };
+    return { id, pages: rawPages.length, empty, subject: finalSubject };
   }
 
   async function remove(id) {
@@ -89,11 +132,11 @@
     const all = await wrap(db.transaction('chunks').objectStore('chunks').getAll());
     const df = new Map(); let total = 0;
     const docs = all.filter(c => books.has(c.bookId)).map(c => {
-      const tf = new Map(); const tk = tokens(c.text);
+      const tf = new Map(); const tk = tokens((c.heading ? c.heading + ' ' + c.heading + ' ' : '') + c.text);   // the section heading counts double
       tk.forEach(w => tf.set(w, (tf.get(w) || 0) + 1));
       tf.forEach((_, w) => df.set(w, (df.get(w) || 0) + 1));
       total += tk.length;
-      return { book: books.get(c.bookId), page: c.page, text: c.text, tf, len: tk.length };
+      return { book: books.get(c.bookId), page: c.page, label: c.label || '', heading: c.heading || '', text: c.text, tf, len: tk.length };
     });
     index = { docs, df, avg: docs.length ? total / docs.length : 1, books };
     return index;
@@ -122,7 +165,7 @@
         const n = ix.df.get(w) || 0, idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
         sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * d.len / ix.avg));
       });
-      if (sc > 0) scored.push({ book: d.book, page: d.page, text: d.text, score: sc, matched: hit, terms: q.length });
+      if (sc > 0) scored.push({ book: d.book, page: d.page, label: d.label, heading: d.heading, text: d.text, score: sc, matched: hit, terms: q.length });
     });
     scored.sort((x, y) => y.score - x.score);
     const out = [], perPage = new Map();
@@ -148,7 +191,10 @@
     return best;
   }
 
+  /** "Chapter 2 - Framework ..., page 2.6, section 4. STATUS OF ..." */
+  const cite = h => `${h.book.title || h.book.name}, page ${h.label || h.page}` + (h.label ? ` (PDF page ${h.page})` : '') + (h.heading ? `, section "${h.heading}"` : '');
+
   const stats = async () => { const b = await list(); return { books: b.length, pages: b.reduce((s, x) => s + x.pages, 0), chars: b.reduce((s, x) => s + x.chars, 0) }; };
 
-  window.Library = { list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
+  window.Library = { cite, list, add, remove, search, stats, tokens, guessSubject, available: () => !!window.indexedDB };
 })();

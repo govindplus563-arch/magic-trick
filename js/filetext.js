@@ -59,7 +59,8 @@
   }
 
   /** Text of every PDF page, in reading order, with TAB between table columns. */
-  async function pdfPages(file, onProgress) {
+  async function pdfPages(file, onProgress, opts) {
+    const gap = (opts && opts.tabGap) || 6;
     await loadScript('vendor/pdf.min.js');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
@@ -81,7 +82,7 @@
         let s = '', prevEnd = null;
         r.items.forEach(it => {
           const x = it.transform[4];
-          if (prevEnd != null) s += (x - prevEnd > 6 ? '\t' : (x - prevEnd > 0.5 ? ' ' : ''));
+          if (prevEnd != null) s += (x - prevEnd > gap ? '\t' : (x - prevEnd > 0.5 ? ' ' : ''));
           s += it.str.trim(); prevEnd = x + it.width;
         });
         out.push(s);
@@ -99,9 +100,9 @@
   }
 
   /** Any supported file -> array of page texts (real pages for PDF, ~3000 character blocks for other files). */
-  async function readPages(file, onProgress) {
+  async function readPages(file, onProgress, opts) {
     const ext = ((file.name || '').toLowerCase().split('.').pop());
-    if (ext === 'pdf') return pdfPages(file, onProgress);
+    if (ext === 'pdf') return pdfPages(file, onProgress, opts);
     const text = await read(file);
     const pages = []; let cur = '';
     text.split('\n').forEach(line => { cur += line + '\n'; if (cur.length >= 3000) { pages.push(cur); cur = ''; } });
