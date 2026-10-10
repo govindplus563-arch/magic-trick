@@ -351,16 +351,18 @@
     if (!Gemini.hasKey() && !(await Gemini.openSettings())) return;
     const text = ta.value;
     if (!text.trim()) return;
+    let notice = '';
     aiAbort = new AbortController();
     aiBtn.textContent = 'Cancel'; aiBtn.disabled = false;
     aiStatus.hidden = false; aiStatus.className = 'hint'; aiStatus.textContent = 'Asking Gemini…';
     try {
       const out = await Gemini.extractPlanner(text, {
         signal: aiAbort.signal, defaultDuration: +durIn.value || 90,
-        onProgress: (i, n) => { aiStatus.textContent = `Asking Gemini… part ${i + 1} of ${n}`; }
+        onProgress: (i, n) => { aiStatus.textContent = `Asking Gemini… part ${i + 1} of ${n}`; },
+        onNotice: m => { notice = m; }
       });
       ta.value = out;                                      // the clean rows appear in the box, editable, then go through the normal preview
-      aiStatus.textContent = 'Gemini finished. Check the preview below before saving.';
+      aiStatus.textContent = (notice ? notice + ' ' : '') + 'Gemini finished. Check the preview below before saving.';
     } catch (e) {
       aiStatus.className = 'err';
       aiStatus.textContent = e.name === 'AbortError' ? 'Cancelled.' : e.message;

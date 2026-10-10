@@ -6,7 +6,8 @@
 (function () {
   const { el } = HomeView;
   const LS = 'studyPlanner.ai';
-  const DEFAULT_MODEL = 'gemini-2.5-flash';
+  const DEFAULT_MODEL = 'gemini-flash-latest';   // Google alias that always points at the newest Flash model
+  const API = 'https://generativelanguage.googleapis.com/v1beta';
   const CHUNK_LINES = 180;
   let dlg;
 
@@ -20,13 +21,17 @@
     return new Promise(resolve => {
       if (!dlg) {
         const key = el('input', { type: 'password', name: 'key', autocomplete: 'off', placeholder: 'AIza…' });
-        const model = el('input', { type: 'text', name: 'model', autocomplete: 'off' });
+        const model = el('input', { type: 'text', name: 'model', autocomplete: 'off', list: 'geminiModels' });
         const f = el('form', { method: 'dialog' },
           el('h2', {}, 'Gemini AI settings'),
           el('p', { class: 'hint' }, 'Get a free key at ',
             el('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener', class: 'link' }, 'aistudio.google.com/apikey'), '.'),
           el('label', {}, 'API key', key),
           el('label', {}, 'Model', model),
+          el('div', { class: 'ai-row' },
+            el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'find' }, 'Find models'),
+            el('span', { class: 'hint', 'data-role': 'found', style: 'margin:0' }, 'Lists the models your key can use.')),
+          el('datalist', { id: 'geminiModels' }),
           el('p', { class: 'hint' }, 'Privacy: when you press "Read with Gemini AI", the text of your planner is sent to Google. ',
             'The key is saved only in this browser and is not included in Export. Do not publish a copy of this app that has your key in it.'),
           el('div', { class: 'actions' },
@@ -43,9 +48,48 @@
       dlg.addEventListener('close', onClose);
       f.onsubmit = e => { e.preventDefault(); saveSettings({ key: f.elements.key.value.trim(), model: f.elements.model.value.trim() || DEFAULT_MODEL }); dlg.close(); };
       f.querySelector('[data-act=cancel]').onclick = () => dlg.close();
+      const found = f.querySelector('[data-role=found]');
+      f.querySelector('[data-act=find]').onclick = async () => {
+        const k = f.elements.key.value.trim();
+        if (!k) { found.textContent = 'Enter your API key first.'; return; }
+        found.textContent = 'Asking Google…';
+        try {
+          const names = await listModels(k);
+          f.querySelector('#geminiModels').replaceChildren(...names.map(n => el('option', { value: n })));
+          const best = pickBest(names);
+          if (best && !names.includes(f.elements.model.value.trim()) && f.elements.model.value.trim() !== DEFAULT_MODEL) f.elements.model.value = best;
+          found.textContent = names.length ? `${names.length} models available. Suggested: ${best || 'none'}. Tap the Model box to pick another.` : 'No models available for this key.';
+        } catch (e) { found.textContent = e.message; }
+      };
       f.querySelector('[data-act=forget]').onclick = () => { saveSettings({ key: '', model: f.elements.model.value.trim() || DEFAULT_MODEL }); f.elements.key.value = ''; };
       dlg.showModal();
     });
+  }
+
+  /** Models this key can call for generateContent, e.g. ['gemini-3.5-flash', ...]. */
+  async function listModels(key, signal) {
+    const out = []; let token = '';
+    for (let page = 0; page < 5; page++) {
+      let res;
+      try { res = await fetch(`${API}/models?pageSize=200` + (token ? '&pageToken=' + encodeURIComponent(token) : ''), { headers: { 'x-goog-api-key': key }, signal }); }
+      catch (e) { if (e.name === 'AbortError') throw e; throw new Error('Could not reach Gemini. Check your internet connection.'); }
+      if (!res.ok) {
+        let m = ''; try { m = (await res.json()).error.message; } catch (e) { /* ignore */ }
+        throw new Error(res.status === 400 || res.status === 403 ? 'Gemini rejected the API key. Check it in AI settings.' : `Could not list models (error ${res.status}). ${m}`.trim());
+      }
+      const j = await res.json();
+      (j.models || []).forEach(m => { if ((m.supportedGenerationMethods || []).includes('generateContent')) out.push(String(m.name).replace(/^models\//, '')); });
+      token = j.nextPageToken || ''; if (!token) break;
+    }
+    return out;
+  }
+
+  /** Best general-purpose Flash model: stable before preview, then highest version, no lite/image/audio variants. */
+  function pickBest(names) {
+    const ok = names.filter(n => /flash/i.test(n) && !/lite|image|tts|live|audio|embed|thinking|robotics|computer|vision|native|-exp|customtools/i.test(n));
+    const ver = n => parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    ok.sort((a, b) => (/preview/i.test(a) - /preview/i.test(b)) || ver(b) - ver(a) || a.length - b.length);   // stable models first
+    return ok[0] || names.find(n => /^gemini-/.test(n) && !/embed|image|tts|live|audio/.test(n)) || null;
   }
 
   const SCHEMA = {
@@ -87,7 +131,7 @@
   });
 
   async function callGemini(text, s, signal) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.model)}:generateContent`;
+    const url = `${API}/models/${encodeURIComponent(s.model)}:generateContent`;
     const body = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA }
@@ -110,7 +154,7 @@
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(4000 * (attempt + 1), signal); continue; }
       if (res.status === 400 && /api key/i.test(msg)) throw new Error('Gemini rejected the API key. Check it in AI settings.');
       if (res.status === 401 || res.status === 403) throw new Error('Gemini refused the request (check the API key and that the Generative Language API is enabled). ' + msg);
-      if (res.status === 404) throw new Error(`Model "${s.model}" was not found. Change the model name in AI settings.`);
+      if (res.status === 404) { const e = new Error(`Model "${s.model}" was not found.`); e.code = 'MODEL_NOT_FOUND'; throw e; }
       if (res.status === 429) throw new Error('Gemini rate limit reached. Wait a minute and try again.');
       throw new Error(`Gemini error ${res.status}. ${msg}`.trim());
     }
@@ -128,7 +172,17 @@
     const out = []; let prev = null;
     for (let i = 0; i < chunks.length; i++) {
       if (opts.onProgress) opts.onProgress(i, chunks.length);
-      const rows = await callGemini(prompt(chunks[i], prev, i, chunks.length), s, opts.signal);
+      let rows;
+      try { rows = await callGemini(prompt(chunks[i], prev, i, chunks.length), s, opts.signal); }
+      catch (e) {
+        if (e.code !== 'MODEL_NOT_FOUND') throw e;
+        // the saved model name is retired or wrong: ask Google which models this key can use and switch automatically
+        const best = pickBest(await listModels(s.key, opts.signal));
+        if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
+        if (opts.onNotice) opts.onNotice(`"${s.model}" is not available, switched to "${best}".`);
+        s.model = best; saveSettings({ key: s.key, model: best });
+        rows = await callGemini(prompt(chunks[i], prev, i, chunks.length), s, opts.signal);
+      }
       rows.forEach(r => {
         out.push([tidy(r.date), tidy(r.subject), tidy(r.chapter), tidy(r.lecture),
           r.duration_min > 0 ? r.duration_min : (opts.defaultDuration || 90), r.of > 0 ? r.of : ''].join('\t'));
@@ -139,5 +193,5 @@
     return out.join('\n');
   }
 
-  window.Gemini = { settings, openSettings, extractPlanner, hasKey: () => !!settings().key };
+  window.Gemini = { settings, openSettings, extractPlanner, listModels, pickBest, hasKey: () => !!settings().key };
 })();
