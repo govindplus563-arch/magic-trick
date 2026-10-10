@@ -33,6 +33,10 @@
           el('div', { class: 'ai-row' },
             el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'find' }, 'Find models'),
             el('span', { class: 'hint', 'data-role': 'found', style: 'margin:0' }, 'Lists the models your key can use.')),
+          el('div', { class: 'ai-row' },
+            el('button', { type: 'button', class: 'btn outline sm', 'data-act': 'ping' }, '⚡ Test speed'),
+            el('button', { type: 'button', class: 'btn ghost sm', 'data-act': 'pingbig' }, 'Test with a typical chat size')),
+          el('div', { class: 'ping-out', 'data-role': 'ping', hidden: true }),
           el('input', { type: 'search', class: 'ml-filter', placeholder: 'Filter the model list (e.g. gemma)', 'aria-label': 'Filter models', hidden: true }),
           el('div', { class: 'model-list', 'data-role': 'models', hidden: true }),
           el('datalist', { id: 'geminiModels' }),
@@ -84,6 +88,17 @@
           found.textContent = names.length ? `${names.length} models can chat (of ${all.length}). Tap Main or Backup next to the one you want, then Save.` : 'No models available for this key.';
         } catch (e) { found.textContent = e.message; }
       };
+      const runPing = async big => {
+        const out = f.querySelector('[data-role=ping]'), main = f.elements.model.value.trim() || DEFAULT_MODEL, bk = f.elements.backupModel.value.trim();
+        if (!f.elements.key.value.trim()) { out.hidden = false; out.textContent = 'Enter your API key first.'; return; }
+        update({ key: f.elements.key.value.trim() });
+        out.hidden = false; out.textContent = 'Testing… (uses 1 request per model)';
+        const lines = [await ping(main, big)];
+        if (bk && bk !== main) { out.textContent = lines[0].text + '\nTesting the backup…'; lines.push(await ping(bk, big)); }
+        out.textContent = lines.map(l => l.text).join('\n') + (lines.every(l => l.ok) ? '' : '\nTip: pick a model that shows ✅ as Main, and keep a second ✅ one as Backup.');
+      };
+      f.querySelector('[data-act=ping]').onclick = () => runPing(false);
+      f.querySelector('[data-act=pingbig]').onclick = () => runPing(true);
       f.querySelector('[data-act=forget]').onclick = () => { update({ key: '' }); f.elements.key.value = ''; };
       dlg.showModal();
     });
@@ -245,17 +260,22 @@
     catch (e) { if (e.code === 'NEEDS_COMPAT' && !small) return generate(s, compat(opts.compactBody || body), opts.signal, opts.timeoutMs, noRetry); throw e; }
   }
 
+  const why = e => e.code === 'TIMEOUT' ? 'did not answer in time' : e.code === 'RATE_LIMIT' ? 'is rate-limited' : (e.message || 'failed');
+
   /** The main model; when it is rate-limited or too slow, the backup model (if one is set). Returns parsed JSON. */
   async function runJSON(body, opts) {
     const s = settings();
     if (!s.key) throw new Error('Add your Gemini API key in AI settings first.');
     const backup = s.backupModel && s.backupModel !== s.model ? s.backupModel : '';
+    // with a backup ready, do not wait long for the main model: chat questions give it 20 s
+    const mainOpts = backup && (opts.timeoutMs || 45000) <= 60000 ? Object.assign({}, opts, { timeoutMs: Math.min(opts.timeoutMs || 45000, 20000) }) : opts;
     let text;
-    try { text = await attempt(s.model, body, opts, !!backup); }
+    try { text = await attempt(s.model, body, mainOpts, !!backup); }
     catch (e) {
       if (backup && (e.code === 'RATE_LIMIT' || e.code === 'TIMEOUT')) {
-        if (opts.onNotice) opts.onNotice(`${s.model} was ${e.code === 'TIMEOUT' ? 'too slow' : 'rate-limited'}, so ${backup} answered.`);
-        text = await attempt(backup, body, opts, false);
+        if (opts.onNotice) opts.onNotice(`${s.model} ${why(e)}, so ${backup} answered.`);
+        try { text = await attempt(backup, body, opts, false); }
+        catch (e2) { throw new Error(`${s.model} ${why(e)}, and ${backup} ${why(e2)}. Open AI settings → Test speed to see which model is working.`); }
       } else if (e.code === 'MODEL_NOT_FOUND') {
         const best = pickBest(await listModels(s.key, opts.signal));
         if (!best || best === s.model) throw new Error(`${e.message} No usable Gemini model was found for this key. Open AI settings → Find models.`);
@@ -265,6 +285,25 @@
       } else throw e;
     }
     try { return parseLoose(text); } catch (e) { throw new Error('The model sent an answer that could not be understood. Try again.'); }
+  }
+
+  /** Times one tiny request per model so you can see which one is fast, slow, rate-limited or missing. */
+  async function ping(model, big) {
+    const s = settings();
+    const filler = big ? ('Study notes about accounting standards, capital maintenance and financial statements. ').repeat(190) + '\n\n' : '';
+    const body = { contents: [{ role: 'user', parts: [{ text: filler + 'Reply with the single word OK.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 16 } };
+    if (!/gemma/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    const ctl = new AbortController(), t0 = Date.now(), timer = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const res = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.key }, body: JSON.stringify(body), signal: ctl.signal });
+      const sec = ((Date.now() - t0) / 1000).toFixed(1);
+      if (res.ok) return { ok: true, text: `✅ ${model}: answered in ${sec} s${big ? ' (about ' + Math.round(filler.length / 4) + ' tokens sent)' : ''}` };
+      let m = ''; try { m = (await res.json()).error.message || ''; } catch (e) { /* ignore */ }
+      const kind = res.status === 429 ? 'rate limit / daily quota used up' : res.status === 404 ? 'model not found for this key' : res.status === 400 && /thinking/i.test(m) ? 'this model needs thinking on' : 'error ' + res.status;
+      return { ok: false, text: `❌ ${model}: ${kind} after ${sec} s. ${m.slice(0, 140)}` };
+    } catch (e) {
+      return { ok: false, text: ctl.signal.aborted ? `⏱️ ${model}: no answer after 30 s (too slow or stuck)` : `❌ ${model}: could not reach Google (${e.message || 'network'})` };
+    } finally { clearTimeout(timer); }
   }
 
   const tidy = v => String(v == null ? '' : v).replace(/[\t\r\n"]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -306,5 +345,5 @@
     return runJSON(mk(system), Object.assign({}, opts, opts.compactSystem ? { compactBody: mk(opts.compactSystem) } : {}));
   }
 
-  window.Gemini = { settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
+  window.Gemini = { ping, settings, openSettings, extractPlanner, chatTurn, listModels, listModelsFull, pickBest, pickBackup, hasKey: () => !!settings().key };
 })();
