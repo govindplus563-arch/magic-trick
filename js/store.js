@@ -208,7 +208,7 @@
         const done = !!(opts && opts.pastDone && r.date < t);
         state.lectures.push({
           id: uid(), date: r.date, subject: r.subject, chapter: r.chapter, lecture: String(r.lecture),
-          duration: r.duration, done, doneOn: done ? r.date : null, of: r.of || undefined
+          duration: r.duration, done, doneOn: done ? r.date : null, of: r.of || undefined, undated: r.undated || undefined
         });
       });
       const dates = state.lectures.map(x => x.date).sort();

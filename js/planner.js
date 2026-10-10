@@ -89,10 +89,13 @@
    * (opts.defaultDuration is used). Chapters that wrap over several lines in a PDF are stitched back together. */
   const DATE_CELL = /^(?:[A-Za-z]{3,9}day,?\s+)?[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}$|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$|^\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4}$/;
 
+  const UNDATED = /^[A-Za-z][A-Za-z .\/-]{1,24}$/;   // e.g. Recorded, Self study, TBD
+
   function parseStructured(text, existing, opts) {
     const dur = Math.max(1, Math.round((opts && opts.defaultDuration) || 90));
     const kk = r => [r.date, r.subject.toLowerCase(), r.chapter.toLowerCase()].join('|');
-    const have = new Map((existing || []).map(l => [kk(l), l]));
+    const hk = r => kk(r) + (r.undated ? '|' + r.lecture : '');   // undated lectures share a day, so tell them apart by lecture no.
+    const have = new Map((existing || []).map(l => [hk(l), l]));
     const seq = [], rows = [], errors = [], updates = [];
     const seen = new Set();
     let subject = null, dupes = 0;
@@ -108,6 +111,11 @@
         const mid = cells.slice(1, di);
         const chapter = mid.find(c => !/^\d+$/.test(c)) || '';
         seq.push({ t: 'mid', line, raw, subject, sno: cells[0], chapter, date: cells[di], tot: +(mid.filter(c => /^\d+$/.test(c))[1] || 0) });
+      } else if (subject && isInt && cells.length >= 3 && UNDATED.test(cells[cells.length - 1])) {
+        // a lecture with a word such as "Recorded" where the date should be: kept, and given a date below
+        const mid = cells.slice(1, -1);
+        const chapter = mid.find(c => !/^\d+$/.test(c)) || '';
+        seq.push({ t: 'mid', line, raw, subject, sno: cells[0], chapter, date: null, tot: +(mid.filter(c => /^\d+$/.test(c))[1] || 0) });
       } else if (subject && isInt && cells.length >= 3) {
         errors.push({ line, text: raw, reason: 'no readable date found in this row' });
         seq.push({ t: 'other' });
@@ -137,9 +145,13 @@
       try {
         if (!chapter) throw new Error('chapter name not found for this row');
         parseLecture(e.sno);   // validates the S No
-        const r = { line: e.line, date: parseDate(e.date), subject: e.subject, chapter, duration: dur, sno: e.sno, tot: e.tot };
-        if (seen.has(kk(r))) { dupes++; return; }
-        seen.add(kk(r)); rows.push(r);
+        const undated = e.date == null;
+        const r = { line: e.line, date: undated ? null : parseDate(e.date), subject: e.subject, chapter, duration: dur, sno: e.sno, tot: e.tot, undated };
+        if (!undated) {
+          if (seen.has(kk(r))) { dupes++; return; }
+          seen.add(kk(r));
+        }
+        rows.push(r);
         const idx = kept[e.subject] = (kept[e.subject] || 0);
         kept[e.subject]++;
         if (e.tot) (markers[e.subject] = markers[e.subject] || []).push({ n: e.tot, lo: idx, hi: idx });
@@ -168,16 +180,28 @@
       }
       groups.forEach(([s0, e0]) => { for (let k = s0; k < e0; k++) { list[k].lecture = String(k - s0 + 1); list[k].of = e0 - s0; } });
     });
+    // Undated lectures ("Recorded"): same day as the previous dated lecture of that subject (or skipped, by choice).
+    let undatedN = 0;
+    Object.values(bySubject).forEach(list => list.forEach((r, i) => {
+      if (!r.undated) return;
+      undatedN++;
+      const prev = list.slice(0, i).reverse().find(x => x.date), next = list.slice(i + 1).find(x => x.date);
+      const src = prev || next;
+      if (src) r.date = src.date; else errors.push({ line: r.line, text: '', reason: 'lecture has no date and there is no dated lecture to place it next to' });
+    }));
+    const dropUndated = opts && opts.undated === 'skip';
+    for (let i = rows.length - 1; i >= 0; i--) if (!rows[i].date || (dropUndated && rows[i].undated)) rows.splice(i, 1);
+
     // Lectures already saved (e.g. from an earlier upload): just fix their numbering instead of adding duplicates.
     const fresh = [];
     rows.forEach(r => {
-      const old = have.get(kk(r));
+      const old = have.get(hk(r));
       if (old) { if (old.lecture !== r.lecture || old.of !== r.of) updates.push({ id: old.id, lecture: r.lecture, of: r.of }); dupes++; }
       else fresh.push(r);
     });
     fresh.sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
     errors.sort((a, b) => a.line - b.line);
-    return { rows: fresh, errors, dupes, updates, structured: true };
+    return { rows: fresh, errors, dupes, updates, structured: true, undated: dropUndated ? 0 : undatedN, undatedTotal: undatedN };
   }
 
   /** -> { rows:[{line,date,subject,chapter,lecture,duration}], errors:[{line,text,reason}], dupes:n } */
@@ -221,7 +245,7 @@
   const { el } = HomeView;
   const D = Store.D;
   const TEMPLATE = 'Date,Subject,Chapter,Lecture,Duration\n2026-10-12,Taxation,GST - Input Tax Credit,Lec 16,1h 30m\n13/10/2026,Law,Companies Act,9,75 min\n14 Oct 2026,Audit,Nature of Audit,7,1:15\n';
-  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, aiBtn, aiHint, aiStatus, aiAbort = null, current = null;
+  let dlg, ta, results, saveBtn, clearSample, sampleRow, durIn, durRow, pastSel, pastRow, undSel, undRow, aiBtn, aiHint, aiStatus, aiAbort = null, current = null;
 
   function build() {
     dlg = el('dialog', { class: 'sheet wide' });
@@ -247,6 +271,11 @@
       el('option', { value: 'skip' }, 'Skip them'));
     pastSel.addEventListener('change', refreshSave);
     pastRow = el('label', { class: 'field inline-field' }, '', pastSel);
+    undSel = el('select', { 'aria-label': 'Lectures without a date' },
+      el('option', { value: 'prev' }, 'Put them on the same day as the lecture before'),
+      el('option', { value: 'skip' }, 'Skip them'));
+    undSel.addEventListener('change', preview);
+    undRow = el('label', { class: 'field inline-field' }, '', undSel);
     saveBtn = el('button', { class: 'btn primary', type: 'button', disabled: true, onclick: save }, 'Save');
     const tpl = el('a', { href: '#', class: 'link', onclick: e => {
       e.preventDefault();
@@ -264,7 +293,7 @@
         el('button', { type: 'button', class: 'btn ghost sm', onclick: () => Gemini.openSettings().then(refreshAI) }, 'AI settings')),
       aiHint = el('div', { class: 'hint ai-hint', hidden: true }, 'Some rows could not be read. Gemini AI can often understand unusual planner layouts. It sends the planner text to Google when you press the button.'),
       aiStatus = el('div', { class: 'hint', hidden: true }),
-      results, durRow, pastRow, sampleRow,
+      results, durRow, undRow, pastRow, sampleRow,
       el('div', { class: 'actions' }, el('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Cancel'), saveBtn));
     document.body.append(dlg);
   }
@@ -274,13 +303,17 @@
     results.replaceChildren();
     saveBtn.disabled = true; saveBtn.textContent = 'Save'; current = null;
     sampleRow.hidden = !st.sampleActive;
-    pastRow.hidden = true; aiHint.hidden = true;
+    pastRow.hidden = true; undRow.hidden = true; aiHint.hidden = true;
     aiBtn.disabled = !!aiAbort || !ta.value.trim();
     if (!ta.value.trim()) return;
     current = parse(ta.value, st.lectures.filter(l => !(st.sampleActive && clearSample.checked && l.sample)),
-      { defaultDuration: +durIn.value || 90 });
+      { defaultDuration: +durIn.value || 90, undated: undSel.value });
     const { rows, errors, dupes } = current;
     aiHint.hidden = !(errors.length >= 3 || (!rows.length && errors.length));
+    if (current.undatedTotal) {
+      undRow.hidden = false;
+      undRow.firstChild.textContent = `${current.undatedTotal} lecture${current.undatedTotal === 1 ? ' has' : 's have'} no date (marked "Recorded" or similar): `;
+    }
     const nPast = rows.filter(r => r.date < D.today()).length;
     pastRow.hidden = !nPast;
     if (nPast) pastRow.firstChild.textContent = `${nPast} lecture${nPast === 1 ? ' is' : 's are'} dated before today: `;
@@ -362,7 +395,7 @@
     open() {
       if (!dlg) build();
       ta.value = ''; dlg.querySelector('input[type=file]').value = '';
-      clearSample.checked = true; pastSel.value = 'missed';
+      clearSample.checked = true; pastSel.value = 'missed'; undSel.value = 'prev';
       aiStatus.hidden = true; refreshAI();
       preview();
       dlg.showModal();
